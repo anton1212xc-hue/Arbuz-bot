@@ -10,9 +10,10 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
+# Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 
-# Корректная настройка кастомного сервера для ShuzaGram в aiogram 3.x
+# Настройка кастомного сервера для ShuzaGram в aiogram 3.x
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
 session = AiohttpSession(api=custom_server)
 
@@ -24,6 +25,9 @@ bot = Bot(
 dp = Dispatcher(storage=MemoryStorage())
 
 
+# --- КЛАВИАТУРЫ ---
+
+
 def get_main_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
@@ -32,6 +36,20 @@ def get_main_menu():
       ],
       resize_keyboard=True,
   )
+
+
+def get_work_menu():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text="🤝 Рефка"), KeyboardButton(text="🍔 Бизнес")],
+          [KeyboardButton(text="🧱 Блок"), KeyboardButton(text="🚕 Таксист")],
+          [KeyboardButton(text="👮 Федерал"), KeyboardButton(text="⬅️ Назад")],
+      ],
+      resize_keyboard=True,
+  )
+
+
+# --- ОБРАБОТЧИКИ ---
 
 
 @dp.message(F.text == "/start")
@@ -46,19 +64,36 @@ async def cmd_start(message: Message):
   await message.answer(text, reply_markup=get_main_menu())
 
 
+@dp.message(F.text == "⬅️ Назад")
+async def back_to_main(message: Message):
+  await message.answer("Главное меню, бро:", reply_markup=get_main_menu())
+
+
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: Message):
   await message.answer(
       "📊 **Твой профиль:**\n\n💰 Бахчи (бабосы): $1,000\n🧢 Ранг: Скуф /"
-      " Обычный чел\n🛡 Защита: 10\n⚖️ Статус: На свободе"
+      " Обычный чел\n🛡 Защита: 10\n⚖️ Статус: На свободе",
+      reply_markup=get_main_menu(),
   )
 
 
 @dp.message(F.text == "💼 Работа")
 async def work_handler(message: Message):
   await message.answer(
-      "мяумс, выбери работу, на которой хочешь сейчас работать:\n\n• 🤝"
-      " Рефка\n• 🍔 Бизнес\n• 🧱 Блок\n• 🚕 Таксист\n• 👮 Федерал"
+      "мяумс, выбери работу, на которой хочешь сейчас работать:",
+      reply_markup=get_work_menu(),
+  )
+
+
+# Обработчики конкретных работ
+@dp.message(
+    F.text.in_(["🤝 Рефка", "🍔 Бизнес", "🧱 Блок", "🚕 Таксист", "👮 Федерал"])
+)
+async def choose_work_handler(message: Message):
+  await message.answer(
+      f"Ты устроился на работу: **{message.text}**. Начинай суету! 💼",
+      reply_markup=get_work_menu(),
   )
 
 
@@ -66,7 +101,8 @@ async def work_handler(message: Message):
 async def casino_handler(message: Message):
   await message.answer(
       "🎲 Добро пожаловать в кинцо «как остаться без трусов»!\nЗа какой стол"
-      " сядете?"
+      " сядете?",
+      reply_markup=get_main_menu(),
   )
 
 
@@ -74,16 +110,20 @@ async def casino_handler(message: Message):
 async def market_handler(message: Message):
   await message.answer(
       "🛍 **BB MARKET:**\nТут можно прикупить шмотки для поднятия авторитета и"
-      " защиты."
+      " защиты.",
+      reply_markup=get_main_menu(),
   )
 
 
 @dp.message()
 async def echo_handler(message: Message):
-  await message.answer("Чет непонятная малява. Пользуйся меню или пиши /start, бро.")
+  await message.answer(
+      "Чет непонятная малява. Пользуйся меню или пиши /start, бро.",
+      reply_markup=get_main_menu(),
+  )
 
 
-# Веб-сервер для удержания порта на Render (Free Web Service)
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER (Free Web Service) ---
 async def handle(request):
   return web.Response(text="Бот Бандит на связи и работает!")
 
@@ -103,10 +143,10 @@ async def main():
   logging.basicConfig(level=logging.INFO)
   print("Запуск бота бандита...")
 
-  # Запускаем веб-сервер в фоновой задаче для Render
+  # Запускаем фоновый веб-сервер для порта Render
   asyncio.create_task(start_web_server())
 
-  # Запуск поллинга
+  # Запускаем поллинг бота
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
 
