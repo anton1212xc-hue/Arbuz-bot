@@ -5,19 +5,16 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 
-# Настройка сессии для ShuzaGram
-session = AiohttpSession(
-    api=dict(
-        base="https://api.shuzagram.com/bot{token}/{method}",
-        file="https://api.shuzagram.com/file/bot{token}/{path}",
-    )
-)
+# Корректная настройка кастомного сервера для ShuzaGram в aiogram 3.x
+custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
+session = AiohttpSession(api=custom_server)
 
 bot = Bot(
     token=TOKEN,
@@ -86,7 +83,7 @@ async def echo_handler(message: Message):
   await message.answer("Чет непонятная малява. Пользуйся меню или пиши /start, бро.")
 
 
-# --- Веб-сервер для бесплатного Web Service на Render ---
+# Веб-сервер для удержания порта на Render (Free Web Service)
 async def handle(request):
   return web.Response(text="Бот Бандит на связи и работает!")
 
@@ -96,7 +93,6 @@ async def start_web_server():
   app.router.add_get("/", handle)
   runner = web.AppRunner(app)
   await runner.setup()
-  # Render передает свой порт через переменную окружения PORT
   port = int(os.environ.get("PORT", 10000))
   site = web.TCPSite(runner, "0.0.0.0", port)
   await site.start()
@@ -107,10 +103,10 @@ async def main():
   logging.basicConfig(level=logging.INFO)
   print("Запуск бота бандита...")
 
-  # Запускаем веб-сервер в фоновой задаче, чтобы Render видел открытый порт
+  # Запускаем веб-сервер в фоновой задаче для Render
   asyncio.create_task(start_web_server())
 
-  # Запускаем поллинг бота
+  # Запуск поллинга
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
 
