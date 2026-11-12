@@ -456,14 +456,18 @@ async def top_players_handler(message: Message):
       safe_money = money if money is not None else 0
       text += f"{medals} {name_display} — Баланс: ${safe_money:,}\n"
 
-    # Отправляем без parse_mode, чтобы спецсимволы в никах не ломали разметку
-    await message.answer(text, reply_markup=get_main_menu())
+    # Явно указываем parse_mode=None, чтобы глобальные настройки бота не ломали текст
+    await message.answer(
+        text, parse_mode=None, reply_markup=get_main_menu()
+    )
 
   except Exception as e:
     await message.answer(
         f"⚠️ Ошибка в топе: {e}",
+        parse_mode=None,
         reply_markup=get_main_menu(),
     )
+
 
 
 # --- АДМИН-ПАНЕЛЬ И РАССЫЛКА ---
