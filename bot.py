@@ -11,7 +11,9 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LabeledPrice,
     Message,
+    PreCheckoutQuery,
 )
 
 TOKEN = "1780243444:GNVsB25ytITDJMWilP1y64AZ0EdNSp4Rh-j"
@@ -19,7 +21,6 @@ SHUZAGRAM_SERVER_BASE = "https://api.shuzagram.com"
 
 router = Router()
 
-# --- БАЗА ДАННЫХ (SQLite) ---
 def init_db():
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
@@ -37,8 +38,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0,
-            stars_wallet INTEGER DEFAULT 500
+            balance INTEGER DEFAULT 0
         )
     """)
     conn.commit()
@@ -65,14 +65,13 @@ def get_main_keyboard():
 async def cmd_start(message: Message):
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    # Выдаем тестовые 500 звезд для проверки покупки, если пользователя нет
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, stars_wallet) VALUES (?, 500)", (message.from_user.id,))
+    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (message.from_user.id,))
     conn.commit()
     conn.close()
 
     await message.answer(
-        "👋 Добро пожаловать на P2P Маркетплейс NFT и подарков за Telegram Stars ✨.\n"
-        "Здесь вы можете безопасно продавать и покупать цифровые активы!",
+        "👋 Добро пожаловать на P2P Маркетплейс NFT за реальные Telegram Stars ✨.\n"
+        "Покупка происходит через официальные счета Telegram!",
         reply_markup=get_main_keyboard()
     )
 
@@ -134,9 +133,23 @@ async def view_nft(callback: CallbackQuery):
 
     title, description, price, seller_id, gift_media = nft
 
+    if seller_id == callback.from_user.id:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="« К каталогу", callback_data="open_catalog")]
+            ]
+        )
+        await callback.message.edit_text(
+            f"🎨 **NFT: {title}**\n\n⚠️ Вы не можете купить свой собственный выставленный лот!",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+        return
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"💎 Подтвердить покупку за {price} ⭐", callback_data=f"buy_confirm_{nft_id}")],
+            [InlineKeyboardButton(text=f"💎 Купить за {price} Stars", callback_data=f"buy_invoice_{nft_id}")],
             [InlineKeyboardButton(text="« К каталогу", callback_data="open_catalog")]
         ]
     )
@@ -159,10 +172,10 @@ async def view_nft(callback: CallbackQuery):
         
     await callback.answer()
 
-@router.callback_query(F.data.startswith("sell_nft"))
+@router.callback_query(F.data == "sell_nft")
 async def start_sell(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
-        "🎁 Отправьте **картинку или анимацию** вашего NFT-подарка:"
+        "🎁 Отправьте **картинку или скриншот** вашего NFT-подарка:"
     )
     await state.set_state(SellNFT.waiting_for_media)
     await callback.answer()
@@ -215,83 +228,116 @@ async def process_price(message: Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# --- ПРЯМАЯ И БЫСТРАЯ ПОКУПКА БЕЗ ЗАВИСАНИЙ ИНВОЙСА ---
-@router.callback_query(F.data.startswith("buy_confirm_"))
-async def buy_nft_direct(callback: CallbackQuery, bot: Bot):
+# --- ВЫСТАВЛЕНИЕ ОФИЦИАЛЬНОГО СЧЕТА В ТЕЛЕГРАМЕ (ЗВЁЗДЫ) ---
+@router.callback_query(F.data.startswith("buy_invoice_"))
+async def create_invoice(callback: CallbackQuery):
     nft_id = int(callback.data.split("_")[2])
-    buyer_id = callback.from_user.id
 
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT title, price, seller_id, gift_media FROM nfts WHERE id = ? AND status = 'active'", (nft_id,))
+    cursor.execute("SELECT title, price, seller_id FROM nfts WHERE id = ? AND status = 'active'", (nft_id,))
     nft = cursor.fetchone()
-
-    if not nft:
-        conn.close()
-        await callback.answer("Этот NFT уже куплен или недоступен!", show_alert=True)
-        return
-
-    title, price, seller_id, gift_media = nft
-
-    # Проверяем баланс покупателя
-    cursor.execute("SELECT stars_wallet FROM users WHERE user_id = ?", (buyer_id,))
-    buyer_row = cursor.fetchone()
-    buyer_balance = buyer_row[0] if buyer_row else 0
-
-    if buyer_balance < price:
-        conn.close()
-        await callback.answer(f"❌ Недостаточно звёзд! У вас {buyer_balance} ⭐, а нужно {price} ⭐.", show_alert=True)
-        return
-
-    # Проводим транзакцию
-    # Списываем у покупателя
-    cursor.execute("UPDATE users SET stars_wallet = stars_wallet - ? WHERE user_id = ?", (price, buyer_id))
-    # Зачисляем продавцу
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, seller_id))
-    # Помечаем товар проданным
-    cursor.execute("UPDATE nfts SET status = 'sold' WHERE id = ?", (nft_id,))
-    
-    conn.commit()
     conn.close()
 
-    # Отправляем подарок покупателю
-    if gift_media:
-        try:
-            await bot.send_photo(
-                chat_id=buyer_id,
-                photo=gift_media,
-                caption=f"🎉 **Поздравляем с успешной покупкой!**\nВы приобрели **{title}** за {price} ⭐.\nАктив передан в ваш профиль."
-            )
-        except Exception:
-            pass
+    if not nft:
+        await callback.answer("Этот NFT уже недоступен!", show_alert=True)
+        return
 
-    # Уведомляем продавца
-    if seller_id:
-        try:
-            await bot.send_message(
-                chat_id=seller_id,
-                text=f"💰 **Ваш NFT ({title}) был успешно куплен!**\nВам начислено **{price} ⭐** на баланс."
-            )
-        except Exception:
-            pass
+    title, price, seller_id = nft
 
-    await callback.message.answer(
-        "✅ **Покупка успешно завершена!**\n"
-        f"Вы купили NFT за {price} ⭐.\n"
-        "Товар отправлен в ваш чат, а продавец получил оплату.",
+    if seller_id == callback.from_user.id:
+        await callback.answer("Нельзя покупать свой собственный лот!", show_alert=True)
+        return
+
+    prices = [LabeledPrice(label=title, amount=price)]
+    payload_data = f"nft_{nft_id}_seller_{seller_id}"
+
+    # Отправка инвойса в Telegram Stars (валюта XTR)
+    await callback.message.answer_invoice(
+        title=f"Покупка {title}",
+        description=f"Приобретение NFT-подарка у продавца ID {seller_id}",
+        payload=payload_data,
+        currency="XTR",
+        prices=prices,
+    )
+    await callback.answer()
+
+@router.pre_checkout_query()
+async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery):
+    await pre_checkout_query.answer(ok=True)
+
+# --- ОБРАБОТКА УСПЕШНОЙ ОПЛАТЫ РЕАЛЬНЫМИ ЗВЁЗДАМИ ---
+@router.message(F.successful_payment)
+async def success_payment(message: Message, bot: Bot):
+    payment_info = message.successful_payment
+    payload = payment_info.invoice_payload
+    
+    try:
+        parts = payload.split("_")
+        nft_id = int(parts[1])
+        seller_id = int(parts[3])
+    except Exception:
+        nft_id = None
+        seller_id = None
+
+    amount = payment_info.total_amount
+    buyer_id = message.from_user.id
+
+    if nft_id:
+        conn = sqlite3.connect("marketplace.db")
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT title, gift_media FROM nfts WHERE id = ?", (nft_id,))
+        nft_data = cursor.fetchone()
+        
+        # Закрываем лот
+        cursor.execute("UPDATE nfts SET status = 'sold' WHERE id = ?", (nft_id,))
+        
+        # Зачисляем звёзды на баланс продавца
+        if seller_id:
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, seller_id))
+            
+        conn.commit()
+        conn.close()
+
+        # Отправляем подарок покупателю
+        if nft_data:
+            title, gift_media = nft_data
+            if gift_media:
+                try:
+                    await bot.send_photo(
+                        chat_id=buyer_id,
+                        photo=gift_media,
+                        caption=f"🎉 **Покупка успешно завершена!**\nВы приобрели **{title}** за {amount} ⭐.\nАктив передан в ваш профиль."
+                    )
+                except Exception:
+                    pass
+
+        # Уведомляем продавца
+        if seller_id:
+            try:
+                await bot.send_message(
+                    chat_id=seller_id,
+                    text=f"💰 **Ваш NFT ({title}) был успешно куплен!**\nС баланса покупателя списано и зачислено вам **{amount} ⭐**."
+                )
+            except Exception:
+                pass
+
+    await message.answer(
+        "✅ **Оплата прошла успешно!**\n"
+        f"С вашего баланса Telegram списано {amount} ⭐.\n"
+        "Подарок отправлен в ваш чат, а продавец получил выплату.",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
-    await callback.answer()
 
 @router.callback_query(F.data == "my_profile")
 async def show_profile(callback: CallbackQuery):
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT balance, stars_wallet FROM users WHERE user_id = ?", (callback.from_user.id,))
+    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (callback.from_user.id,))
     row = cursor.fetchone()
     balance = row[0] if row else 0
-    wallet = row[1] if row else 0
 
     cursor.execute("SELECT COUNT(*) FROM nfts WHERE seller_id = ? AND status = 'active'", (callback.from_user.id,))
     active_listings = cursor.fetchone()[0]
@@ -305,8 +351,7 @@ async def show_profile(callback: CallbackQuery):
 
     await callback.message.edit_text(
         f"👤 **Ваш профиль:**\n\n"
-        f"⭐ Доступно звезд для трат: **{wallet} ⭐**\n"
-        f"💎 Заработано от продаж: **{balance} ⭐**\n"
+        f"💎 Заработано звёзд от продаж: **{balance} ⭐**\n"
         f"📦 Ваших активных лотов: **{active_listings}**",
         reply_markup=keyboard,
         parse_mode="Markdown"
@@ -322,7 +367,7 @@ async def main():
     dp = Dispatcher(storage=storage)
     dp.include_router(router)
 
-    print("Маркетплейс бот запущен!")
+    print("Маркетплейс бот запущен с поддержкой Telegram Stars!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
