@@ -189,10 +189,11 @@ async def add_user_car_and_backup(user_id, car_key):
 
 
 def get_top_users(limit=10):
+  """Простой и надежный запрос топ-10 игроков по бабосам"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute(
-      "SELECT user_id, username, money FROM users ORDER BY money DESC LIMIT ?",
+      "SELECT username, money FROM users ORDER BY money DESC LIMIT ?",
       (limit,),
   )
   rows = cursor.fetchall()
@@ -201,7 +202,6 @@ def get_top_users(limit=10):
 
 
 def get_all_user_ids():
-  """Получает список всех ID пользователей для рассылки"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute("SELECT user_id FROM users")
@@ -446,13 +446,26 @@ async def profile_handler(message: Message):
 
 @dp.message(F.text == "🏆 Топ бандюков")
 async def top_players_handler(message: Message):
-  top_rows = get_top_users(10)
-  text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
-  for i, (u_id, u_name, money) in enumerate(top_rows, 1):
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-    identifier = f"@{u_name}" if not str(u_id) == u_name else f"ID {u_id}"
-    text += f"{medals} {identifier} — 💰 **${money:,}**\n"
-  await message.answer(text, reply_markup=get_main_menu())
+  try:
+    top_rows = get_top_users(10)
+    if not top_rows:
+      await message.answer(
+          "🏆 Пока что в топе никого нет.", reply_markup=get_main_menu()
+      )
+      return
+
+    text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
+    for i, (u_name, money) in enumerate(top_rows, 1):
+      medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+      name_display = f"@{u_name}" if u_name else "Безымянный"
+      text += f"{medals} {name_display} — 💰 **${money:,}**\n"
+
+    await message.answer(text, reply_markup=get_main_menu())
+  except Exception as e:
+    print(f"Ошибка топа: {e}")
+    await message.answer(
+        "⚠️ Произошла ошибка при загрузке топа.", reply_markup=get_main_menu()
+    )
 
 
 # --- АДМИН-ПАНЕЛЬ И РАССЫЛКА ---
@@ -875,7 +888,6 @@ async def casino_process_bet(message: Message):
 
   active_games.pop(user_id, None)
 
-  # Шанс победы 30%, поражения 70%
   win = random.choices([True, False], weights=[30, 70], k=1)[0]
 
   if win:
