@@ -449,19 +449,19 @@ async def top_players_handler(message: Message):
       )
       return
 
-    text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
+    text = "🏆 Топ-10 авторитетов по бабосам:\n\n"
     for i, (u_name, money) in enumerate(top_rows, 1):
       medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
       name_display = f"@{u_name}" if u_name else "Бро"
       safe_money = money if money is not None else 0
-      text += f"{medals} {name_display} — 💰 **${safe_money:,}**\n"
+      text += f"{medals} {name_display} — Баланс: ${safe_money:,}\n"
 
+    # Отправляем без parse_mode, чтобы спецсимволы в никах не ломали разметку
     await message.answer(text, reply_markup=get_main_menu())
 
   except Exception as e:
     await message.answer(
-        f"⚠️ Ошибка SQL в топе: `{e}`",
-        parse_mode="Markdown",
+        f"⚠️ Ошибка в топе: {e}",
         reply_markup=get_main_menu(),
     )
 
