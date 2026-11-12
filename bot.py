@@ -1,8 +1,8 @@
 import asyncio
-import json
 import logging
 import os
 import random
+import sqlite3
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -34,56 +34,147 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# Файл для постоянного сохранения данных
-DB_FILE = "database.json"
+# Файл базы данных SQLite
+DB_FILE = "database.db"
 
-users_db = {}  # {user_id (int): user_data}
-username_to_id = {}  # Для поиска по @username
 active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
-# --- ФУНКЦИИ СОХРАНЕНИЯ И ЗАГРУЗКИ ---
-def load_database():
-  global users_db, username_to_id
-  if os.path.exists(DB_FILE):
-    try:
-      with open(DB_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        users_db = {int(k): v for k, v in data.items()}
-        for u_id, u_data in users_db.items():
-          if "username" in u_data and u_data["username"]:
-            username_to_id[u_data["username"].lower()] = u_id
-      print(f"База данных успешно загружена. Игроков: {len(users_db)}")
-    except Exception as e:
-      print(f"Ошибка загрузки базы данных: {e}")
-      users_db = {}
-
-
-def save_database():
-  try:
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-      json.dump(users_db, f, ensure_ascii=False, indent=4)
-  except Exception as e:
-    print(f"Ошибка сохранения базы данных: {e}")
+# --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
+def init_db():
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  # Таблица пользователей
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            money INTEGER DEFAULT 1000,
+            defense INTEGER DEFAULT 10,
+            rank TEXT DEFAULT 'Скуф / Обычный чел'
+        )
+    """)
+  # Таблица бизнесов игроков (поддерживает мульти-покупку)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS businesses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            biz_key TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    """)
+  conn.commit()
+  conn.close()
 
 
 def get_user(user_id, username=None):
-  if user_id not in users_db:
-    users_db[user_id] = {
-        "user_id": user_id,
-        "username": username.lower() if username else str(user_id),
-        "money": 1000,
-        "defense": 10,
-        "rank": "Скуф / Обычный чел",
-        "businesses": [],
-    }
-  if username:
-    users_db[user_id]["username"] = username.lower()
-    username_to_id[username.lower()] = user_id
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
 
-  save_database()
-  return users_db[user_id]
+  cursor.execute(
+      "SELECT user_id, username, money, defense, rank FROM users WHERE"
+      " user_id = ?",
+      (user_id,),
+  )
+  row = cursor.fetchone()
+
+  clean_username = username.lower() if username else str(user_id)
+
+  if not row:
+    cursor.execute(
+        "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
+        " ?, 1000, 10, 'Скуф / Обычный чел')",
+        (user_id, clean_username),
+    )
+    conn.commit()
+    money, defense, rank = 1000, 10, "Скуф / Обычный чел"
+  else:
+    _, db_username, money, defense, rank = row
+    if username and db_username != clean_username:
+      cursor.execute(
+          "UPDATE users SET username = ? WHERE user_id = ?",
+          (clean_username, user_id),
+      )
+      conn.commit()
+
+  # Получаем бизнесы пользователя
+  cursor.execute(
+      "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
+  )
+  biz_rows = cursor.fetchall()
+  businesses = [b[0] for b in biz_rows]
+
+  conn.close()
+
+  return {
+      "user_id": user_id,
+      "username": clean_username,
+      "money": money,
+      "defense": defense,
+      "rank": rank,
+      "businesses": businesses,
+  }
+
+
+def update_user_money_and_stats(
+    user_id, money=None, defense=None, rank=None
+):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  if money is not None:
+    cursor.execute(
+        "UPDATE users SET money = ? WHERE user_id = ?", (money, user_id)
+    )
+  if defense is not None:
+    cursor.execute(
+        "UPDATE users SET defense = ? WHERE user_id = ?", (defense, user_id)
+    )
+  if rank is not None:
+    cursor.execute(
+        "UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id)
+    )
+  conn.commit()
+  conn.close()
+
+
+def add_user_business(user_id, biz_key):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO businesses (user_id, biz_key) VALUES (?, ?)",
+      (user_id, biz_key),
+  )
+  conn.commit()
+  conn.close()
+
+
+def get_top_users(limit=10):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "SELECT user_id, username, money FROM users ORDER BY money DESC LIMIT ?",
+      (limit,),
+  )
+  rows = cursor.fetchall()
+  conn.close()
+  return rows
+
+
+def get_user_by_username_or_id(target_raw):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  if target_raw.isdigit():
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id = ?", (int(target_raw),)
+    )
+  else:
+    cursor.execute(
+        "SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw,)
+    )
+  row = cursor.fetchone()
+  conn.close()
+  return row[0] if row else None
 
 
 BUSINESSES = {
@@ -240,7 +331,7 @@ async def cmd_start(message: Message):
   user_name = message.from_user.first_name or "Бро"
   text = (
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "Скупай сколько угодно одинаковых бизнесов, крути мини-игры и залетай в топ!"
+      "База данных SQLite подключена! Твои успехи надежно сохранены."
   )
   await message.answer(text, reply_markup=get_main_menu())
 
@@ -268,14 +359,12 @@ async def profile_handler(message: Message):
 
 @dp.message(F.text == "🏆 Топ бандюков")
 async def top_players_handler(message: Message):
-  sorted_users = sorted(
-      users_db.values(), key=lambda x: x["money"], reverse=True
-  )
+  top_rows = get_top_users(10)
   text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
-  for i, u in enumerate(sorted_users[:10], 1):
+  for i, (u_id, u_name, money) in enumerate(top_rows, 1):
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-    identifier = f"@{u['username']}" if u["username"] else f"ID {u['user_id']}"
-    text += f"{medals} {identifier} — 💰 **${u['money']:,}**\n"
+    identifier = f"@{u_name}" if not str(u_id) == u_name else f"ID {u_id}"
+    text += f"{medals} {identifier} — 💰 **${money:,}**\n"
   await message.answer(text, reply_markup=get_main_menu())
 
 
@@ -355,16 +444,8 @@ async def admin_process_action(message: Message):
   target_raw = parts[0].lstrip("@").lower()
   arg = parts[1]
 
-  target_user = None
-  if target_raw.isdigit():
-    t_id = int(target_raw)
-    if t_id in users_db:
-      target_user = users_db[t_id]
-  else:
-    if target_raw in username_to_id:
-      target_user = users_db[username_to_id[target_raw]]
-
-  if not target_user:
+  t_id = get_user_by_username_or_id(target_raw)
+  if not t_id:
     await message.answer(
         f"❌ Пользователь `{target_raw}` не найден в базе данных (он должен"
         " хотя бы раз нажать /start в боте).",
@@ -372,16 +453,18 @@ async def admin_process_action(message: Message):
     )
     return
 
+  target_user = get_user(t_id)
+
   if action == "give_money":
     if not arg.isdigit():
       await message.answer("❌ Сумма должна быть числом!")
       return
     amount = int(arg)
-    target_user["money"] += amount
-    save_database()
+    new_money = target_user["money"] + amount
+    update_user_money_and_stats(t_id, money=new_money)
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
-        f" Новый баланс: ${target_user['money']:,}",
+        f" Новый баланс: ${new_money:,}",
         reply_markup=get_admin_menu(),
     )
 
@@ -392,8 +475,7 @@ async def admin_process_action(message: Message):
           " casino_biz, vip_cartel"
       )
       return
-    target_user["businesses"].append(arg)
-    save_database()
+    add_user_business(t_id, arg)
     biz_name = BUSINESSES[arg]["name"]
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
@@ -401,7 +483,7 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ С РАНДОМНЫМ ПРАВИЛЬНЫМ ОТВЕТОМ ---
+# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
 
 
 @dp.message(F.text == "💼 Работа")
@@ -504,17 +586,15 @@ async def process_job_choice(message: Message):
   user = get_user(user_id, message.from_user.username)
   choice = message.text
 
-  # Награды в зависимости от работы
   prizes = {"ref": 250, "car": 600, "block": 1000, "fed": 1800}
   prize = prizes.get(job_type, 300)
 
-  # Сравниваем выбор игрока со случайно загаданным правильным ответом
   if choice == correct_variant:
-    user["money"] += prize
-    save_database()
+    new_money = user["money"] + prize
+    update_user_money_and_stats(user_id, money=new_money)
     await message.answer(
         f"🎯 Четкий расчет! Выбор ({choice}) оказался верным.\nУспех! Получено:"
-        f" **+${prize:,}**! 💸\nБаланс: ${user['money']:,}",
+        f" **+${prize:,}**! 💸\nБаланс: ${new_money:,}",
         reply_markup=get_work_menu(),
     )
   else:
@@ -574,24 +654,25 @@ async def casino_process_bet(message: Message):
     return
 
   active_games.pop(user_id, None)
-  user["money"] -= bet_amount
 
   win = random.choice([True, False])
   if win:
-    payout = bet_amount * 2
-    user["money"] += payout
+    payout = bet_amount
+    new_money = user["money"] + payout
+    update_user_money_and_stats(user_id, money=new_money)
     await message.answer(
         f"🎲 Удача на твоей стороне! Выиграл **+${payout:,}**! 💰\nБаланс:"
-        f" ${user['money']:,}",
+        f" ${new_money:,}",
         reply_markup=get_casino_menu(),
     )
   else:
+    new_money = user["money"] - bet_amount
+    update_user_money_and_stats(user_id, money=new_money)
     await message.answer(
         f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела...\nБаланс:"
-        f" ${user['money']:,}",
+        f" ${new_money:,}",
         reply_markup=get_casino_menu(),
     )
-  save_database()
 
 
 # --- ПОКУПКА БИЗНЕСОВ ---
@@ -633,12 +714,13 @@ async def buy_business_in_cash(message: Message):
     )
     return
 
-  user["money"] -= biz_info["cost"]
-  user["businesses"].append(key)
-  save_database()
+  new_money = user["money"] - biz_info["cost"]
+  update_user_money_and_stats(user.get("user_id"), money=new_money)
+  add_user_business(user.get("user_id"), key)
+
   await message.answer(
       f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
-      f" ${biz_info['income']:,}/час.\nБаланс: ${user['money']:,}",
+      f" ${biz_info['income']:,}/час.\nБаланс: ${new_money:,}",
       reply_markup=get_business_menu(),
   )
 
@@ -662,16 +744,16 @@ async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  user["businesses"].append("vip_cartel")
-  save_database()
+  user_id = message.from_user.id
+  get_user(user_id, message.from_user.username)
+  add_user_business(user_id, "vip_cartel")
 
-  if OWNER_ID and message.from_user.id != OWNER_ID:
+  if OWNER_ID and user_id != OWNER_ID:
     try:
       await bot.send_message(
           OWNER_ID,
-          f"👑 Внимание! @{message.from_user.username or message.from_user.id}"
-          " купил Картель за 250 Звезд!",
+          f"👑 Внимание! @{message.from_user.username or user_id} купил"
+          " Картель за 250 Звезд!",
       )
     except Exception:
       pass
@@ -733,22 +815,25 @@ async def market_buy_handler(message: Message):
     )
     return
 
-  user["money"] -= cost
+  new_money = user["money"] - cost
   if is_vetements:
-    user["rank"] = "Авторитет в VETEMENTS 🧥"
+    new_rank = "Авторитет в VETEMENTS 🧥"
+    update_user_money_and_stats(user["user_id"], money=new_money, rank=new_rank)
     await message.answer(
-        f"Куплен **VETEMENTS**! Ранг: **{user['rank']}** 🔥\nБаланс:"
-        f" ${user['money']:,}",
+        f"Куплен **VETEMENTS**! Ранг: **{new_rank}** 🔥\nБаланс:"
+        f" ${new_money:,}",
         reply_markup=get_market_menu(),
     )
   else:
-    user["defense"] += 15
+    new_def = user["defense"] + 15
+    update_user_money_and_stats(
+        user["user_id"], money=new_money, defense=new_def
+    )
     await message.answer(
-        f"Защита прокачана! Теперь защита: **{user['defense']}** 🛡\nБаланс:"
-        f" ${user['money']:,}",
+        f"Защита прокачана! Теперь защита: **{new_def}** 🛡\nБаланс:"
+        f" ${new_money:,}",
         reply_markup=get_market_menu(),
     )
-  save_database()
 
 
 @dp.message()
@@ -791,10 +876,10 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита...")
+  print("Запуск бота бандита с SQLite...")
 
-  # Загружаем сохраненную базу данных при старте
-  load_database()
+  # Инициализируем таблицы базы данных при старте
+  init_db()
 
   # Запускаем веб-сервер и фоновый самопинг
   asyncio.create_task(start_web_server())
