@@ -60,7 +60,7 @@ async def backup_database_to_owner():
       print(f"Ошибка отправки бэкапа: {e}")
 
 
-# --- ИНИЦИАЛИЗАЦИЯ И АВТОСОХРАНЕНИЕ СТАРТОВОГО ПРОГРЕССА ВЛАДЕЛЬЦА ---
+# --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -89,17 +89,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     """)
-
-  # Страховка для владельца: если база очистилась на Render,
-  # но бот запускается заново, гарантируем твой аккаунт и баланс!
-  cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (OWNER_ID,))
-  if not cursor.fetchone():
-    cursor.execute(
-        "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
-        " 're1ax', 4600, 10, 'Скуф / Обычный чел')",
-        (OWNER_ID,),
-    )
-
   conn.commit()
   conn.close()
 
@@ -118,15 +107,13 @@ def get_user(user_id, username=None):
   clean_username = username.lower() if username else str(user_id)
 
   if not row:
-    # Дефолтные значения для новых игроков
-    default_money = 4600 if user_id == OWNER_ID else 1000
     cursor.execute(
         "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
-        " ?, ?, 10, 'Скуф / Обычный чел')",
-        (user_id, clean_username, default_money),
+        " ?, 1000, 10, 'Скуф / Обычный чел')",
+        (user_id, clean_username),
     )
     conn.commit()
-    money, defense, rank = default_money, 10, "Скуф / Обычный чел"
+    money, defense, rank = 1000, 10, "Скуф / Обычный чел"
   else:
     _, db_username, money, defense, rank = row
     if username and db_username != clean_username:
@@ -794,13 +781,27 @@ async def casino_select_game(message: Message):
 
 
 @dp.message(
-    F.text.regexp(r"^\d+$").filter(
-        lambda msg: msg.from_user.id in active_games
-        and "casino" in active_games[msg.from_user.id]
-    )
+    lambda msg: msg.from_user.id in active_games
+    and "casino" in active_games[msg.from_user.id]
 )
 async def casino_process_bet(message: Message):
   user_id = message.from_user.id
+
+  # Если пользователь нажал «Назад»
+  if message.text == "⬅️ Назад":
+    active_games.pop(user_id, None)
+    await message.answer("Вышел из казино.", reply_markup=get_casino_menu())
+    return
+
+  # Проверяем, что введено именно число
+  if not message.text.isdigit():
+    await message.answer(
+        "⚠️ Эу, бро! Ставка должна быть обычной цифрой (например: `500`)."
+        " Попробуй еще раз или нажми «⬅️ Назад»:",
+        parse_mode="Markdown",
+    )
+    return
+
   bet_amount = int(message.text)
   user = get_user(user_id, message.from_user.username)
 
@@ -1043,9 +1044,9 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита с защитой данных...")
+  print("Запуск бота бандита...")
 
-  # Инициализируем таблицы и гарантируем сохранение твоего профиля
+  # Инициализируем таблицы базы данных
   init_db()
 
   # Запускаем веб-сервер и фоновый самопинг
