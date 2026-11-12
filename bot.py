@@ -14,7 +14,6 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InputMediaPhoto,
     KeyboardButton,
     LabeledPrice,
     Message,
@@ -191,6 +190,23 @@ async def add_user_car_and_backup(user_id, car_key):
   await backup_database_to_owner()
 
 
+def remove_user_car_and_backup(user_id, car_key):
+  """Удаляет одну конкретную тачку из гаража игрока"""
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  # Находим id записи этой тачки у пользователя
+  cursor.execute(
+      "SELECT id FROM cars WHERE user_id = ? AND car_key = ? LIMIT 1",
+      (user_id, car_key),
+  )
+  row = cursor.fetchone()
+  if row:
+    car_db_id = row[0]
+    cursor.execute("DELETE FROM cars WHERE id = ?", (car_db_id,))
+    conn.commit()
+  conn.close()
+
+
 def get_all_user_ids():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -232,31 +248,22 @@ BUSINESSES = {
     },
 }
 
-# --- КАТАЛОГ МАШИН (сюда вставишь свои file_id вместо заглушек) ---
 CARS = {
     "vaz": {
         "name": "🚗 ВАЗ 2107 (Пуд соли)",
         "cost": 15000,
         "speed": "160 км/ч",
-        "image": "ВАЗ_FILE_ID_СЮДА",
     },
-    "bmw_e34": {
-        "name": "🏎 BMW E34 (Бумер)",
-        "cost": 80000,
-        "speed": "240 км/ч",
-        "image": "BMW_FILE_ID_СЮДА",
-    },
+    "bmw_e34": {"name": "🏎 BMW E34 (Бумер)", "cost": 80000, "speed": "240 км/ч"},
     "gelik": {
         "name": "🚙 Mercedes G-Class (Гелик)",
         "cost": 350000,
         "speed": "220 км/ч",
-        "image": "GELIK_FILE_ID_СЮДА",
     },
     "lamborghini": {
         "name": "🏎 Lamborghini Huracan",
         "cost": 1200000,
         "speed": "325 км/ч",
-        "image": "LAMBO_FILE_ID_СЮДА",
     },
 }
 car_keys = list(CARS.keys())
@@ -373,10 +380,38 @@ def get_autosalon_inline(index: int):
           ],
           [
               InlineKeyboardButton(
-                  text="🚙 Мой гараж", callback_data="car_garage"
+                  text="🚙 Мой гараж", callback_data="garage_open"
               ),
               InlineKeyboardButton(
                   text="❌ Выйти в меню", callback_data="car_exit"
+              ),
+          ],
+      ]
+  )
+
+
+def get_garage_inline(index: int):
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="⬅️ Назад", callback_data=f"gar_prev_{index}"
+              ),
+              InlineKeyboardButton(
+                  text="➡️ Вперед", callback_data=f"gar_next_{index}"
+              ),
+          ],
+          [
+              InlineKeyboardButton(
+                  text="💸 Продать за полцены", callback_data=f"gar_sell_{index}"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="🚗 В автосалон", callback_data="garage_to_shop"
+              ),
+              InlineKeyboardButton(
+                  text="❌ Выйти в меню", callback_data="gar_exit"
               ),
           ],
       ]
@@ -670,17 +705,7 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- ПОМОЩНИК ДЛЯ ОПРЕДЕЛЕНИЯ FILE_ID (ОТПРАВЬ ФОТО БОТУ) ---
-@dp.message(F.photo)
-async def get_photo_id(message: Message):
-  photo = message.photo[-1]
-  file_id = photo.file_id
-  await message.answer(
-      f"📸 **file_id этой картинки:**\n`{file_id}`", parse_mode="Markdown"
-  )
-
-
-# --- ИНТЕРАКТИВНЫЙ АВТОСАЛОН ЧЕРЕЗ FILE_ID ---
+# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ АВТОСАЛОН ---
 
 
 async def show_car_page(message_or_callback, index=0, edit=True):
@@ -702,35 +727,15 @@ async def show_car_page(message_or_callback, index=0, edit=True):
   if edit and hasattr(message_or_callback, "message"):
     call = message_or_callback
     try:
-      await call.message.edit_media(
-          media=InputMediaPhoto(
-              media=car["image"], caption=text, parse_mode="Markdown"
-          ),
-          reply_markup=reply_markup,
+      await call.message.edit_text(
+          text, parse_mode="Markdown", reply_markup=reply_markup
       )
-    except Exception as e:
-      print(f"Ошибка смены фото: {e}")
-      try:
-        await call.message.edit_text(
-            text, parse_mode="Markdown", reply_markup=reply_markup
-        )
-      except Exception:
-        pass
+    except Exception:
+      pass
     await call.answer()
   else:
     message = message_or_callback
-    try:
-      await message.answer_photo(
-          photo=car["image"],
-          caption=text,
-          parse_mode="Markdown",
-          reply_markup=reply_markup,
-      )
-    except Exception as e:
-      print(f"Ошибка отправки фото: {e}")
-      await message.answer(
-          text, parse_mode="Markdown", reply_markup=reply_markup
-      )
+    await message.answer(text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
 @dp.message(F.text == "🚗 Автосалон")
@@ -738,8 +743,59 @@ async def autosalon_handler(message: Message):
   await show_car_page(message, index=0, edit=False)
 
 
-@dp.callback_query(F.data.startswith("car_"))
-async def car_callback_handler(callback):
+# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ ГАРАЖ ---
+
+
+async def show_garage_page(callback, index=0):
+  user_id = callback.from_user.id
+  user = get_user(user_id, callback.from_user.username)
+
+  if not user["cars"]:
+    await callback.answer(
+        "Твой гараж пуст! Сначала купи тачку в автосалоне.", show_alert=True
+    )
+    return
+
+  global car_keys
+  # Фильтруем только те ключи машин, которые есть у игрока
+  user_cars_unique = [k for k in car_keys if k in user["cars"]]
+
+  if not user_cars_unique:
+    await callback.answer("У тебя нет машин в гараже!", show_alert=True)
+    return
+
+  index = index % len(user_cars_unique)
+  key = user_cars_unique[index]
+  car = CARS[key]
+
+  from collections import Counter
+
+  counts = Counter(user["cars"])
+  count = counts[key]
+  sell_price = int(car["cost"] / 2)
+
+  text = (
+      f"🚙 **Твой гараж («У Палыча»)**\n\n"
+      f"🚗 Модель: **{car['name']}**\n"
+      f"📦 Количество в гараже: **{count} шт.**\n"
+      f"⚡️ Макс. скорость: `{car['speed']}`\n"
+      f"💵 Цена продажи (за 1 шт.): **${sell_price:,}** (50% от гос. цены)\n\n"
+      f"🔄 Листай свои тачки кнопками ниже:"
+  )
+
+  reply_markup = get_garage_inline(index)
+
+  try:
+    await callback.message.edit_text(
+        text, parse_mode="Markdown", reply_markup=reply_markup
+    )
+  except Exception:
+    pass
+  await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("car_") | F.data.startswith("garage_"))
+async def autosalon_callback_handler(callback):
   data = callback.data
   global car_keys
 
@@ -751,21 +807,12 @@ async def car_callback_handler(callback):
     await callback.answer()
     return
 
-  if data == "car_garage":
-    user = get_user(callback.from_user.id, callback.from_user.username)
-    if not user["cars"]:
-      await callback.answer("Твой гараж пуст!", show_alert=True)
-      return
+  if data == "garage_open":
+    await show_garage_page(callback, index=0)
+    return
 
-    from collections import Counter
-
-    counts = Counter(user["cars"])
-    garage_text = "🚙 **Твой гараж:**\n\n"
-    for key, count in counts.items():
-      c = CARS.get(key, {"name": key})
-      garage_text += f"• {c['name']} (x{count})\n"
-
-    await callback.answer(garage_text, show_alert=True)
+  if data == "garage_to_shop":
+    await show_car_page(callback, index=0, edit=True)
     return
 
   parts = data.split("_")
@@ -795,6 +842,59 @@ async def car_callback_handler(callback):
 
     await callback.answer(f"🎉 Успешно куплено: {car['name']}!", show_alert=True)
     await show_car_page(callback, index, edit=True)
+
+
+@dp.callback_query(F.data.startswith("gar_"))
+async def garage_callback_handler(callback):
+  data = callback.data
+  global car_keys
+  user_id = callback.from_user.id
+  user = get_user(user_id, callback.from_user.username)
+
+  user_cars_unique = [k for k in car_keys if k in user["cars"]]
+
+  if data == "gar_exit":
+    await callback.message.delete()
+    await callback.message.answer(
+        "Главное меню, бро:", reply_markup=get_main_menu()
+    )
+    await callback.answer()
+    return
+
+  if data == "gar_to_shop":
+    await show_car_page(callback, index=0, edit=True)
+    return
+
+  parts = data.split("_")
+  action = parts[1]
+  index = int(parts[2])
+
+  if not user_cars_unique:
+    await callback.answer("В твоем гараже больше нет машин!", show_alert=True)
+    await show_car_page(callback, index=0, edit=True)
+    return
+
+  if action == "prev":
+    await show_garage_page(callback, index - 1)
+  elif action == "next":
+    await show_garage_page(callback, index + 1)
+  elif action == "sell":
+    index = index % len(user_cars_unique)
+    key = user_cars_unique[index]
+    car = CARS[key]
+    sell_price = int(car["cost"] / 2)
+
+    # Продаем одну единицу машины
+    remove_user_car_and_backup(user_id, key)
+    new_money = user["money"] + sell_price
+    update_user_money_and_stats(user_id, money=new_money)
+    await backup_database_to_owner()
+
+    await callback.answer(
+        f"💰 Ты успешно продал {car['name']} за ${sell_price:,}!",
+        show_alert=True,
+    )
+    await show_garage_page(callback, index)
 
 
 # --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
