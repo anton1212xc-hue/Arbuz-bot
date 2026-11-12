@@ -855,17 +855,18 @@ async def garage_callback_handler(callback):
     await show_car_page(callback, index=0, edit=True)
     return
 
-  index = int(parts[3])
+  if action in ["prev", "next"]:
+    index = int(parts[2])
+    if action == "prev":
+      await show_garage_page(callback, index - 1)
+    elif action == "next":
+      await show_garage_page(callback, index + 1)
 
-  if action == "prev":
-    await show_garage_page(callback, index - 1)
-  elif action == "next":
-    await show_garage_page(callback, index + 1)
   elif action == "sell":  # gar_sell_{db_id}_{index}
     db_id = int(parts[2])
+    index = int(parts[3])
     cars_list = get_user_cars_detailed(user_id)
 
-    # Ищем тачку по уникальному db_id в слоте
     target_car = next((item for item in cars_list if item[0] == db_id), None)
     if not target_car:
       await callback.answer("Этот слот уже пуст!", show_alert=True)
@@ -876,7 +877,6 @@ async def garage_callback_handler(callback):
     car = CARS[key]
     sell_price = int(car["cost"] / 2)
 
-    # Удаляем конкретный слот и начисляем деньги
     remove_car_by_db_id(db_id)
     user = get_user(user_id)
     new_money = user["money"] + sell_price
@@ -887,7 +887,6 @@ async def garage_callback_handler(callback):
         f"💰 Слот продан! Выручено: ${sell_price:,}!", show_alert=True
     )
 
-    # Обновляем гараж (переходим к предыдущему слоту или закрываем, если пусто)
     updated_list = get_user_cars_detailed(user_id)
     if not updated_list:
       await callback.message.edit_text(
