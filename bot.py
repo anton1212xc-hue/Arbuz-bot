@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -9,6 +11,7 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 
+# Настройка сессии для ShuzaGram
 session = AiohttpSession(
     api=dict(
         base="https://api.shuzagram.com/bot{token}/{method}",
@@ -83,9 +86,31 @@ async def echo_handler(message: Message):
   await message.answer("Чет непонятная малява. Пользуйся меню или пиши /start, бро.")
 
 
+# --- Веб-сервер для бесплатного Web Service на Render ---
+async def handle(request):
+  return web.Response(text="Бот Бандит на связи и работает!")
+
+
+async def start_web_server():
+  app = web.Application()
+  app.router.add_get("/", handle)
+  runner = web.AppRunner(app)
+  await runner.setup()
+  # Render передает свой порт через переменную окружения PORT
+  port = int(os.environ.get("PORT", 10000))
+  site = web.TCPSite(runner, "0.0.0.0", port)
+  await site.start()
+  print(f"Веб-сервер запущен на порту {port}")
+
+
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Бот бандит успешно запущен!")
+  print("Запуск бота бандита...")
+
+  # Запускаем веб-сервер в фоновой задаче, чтобы Render видел открытый порт
+  asyncio.create_task(start_web_server())
+
+  # Запускаем поллинг бота
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
 
