@@ -11,6 +11,7 @@ from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
+    FSInputFile,
     KeyboardButton,
     LabeledPrice,
     Message,
@@ -34,18 +35,35 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# Файл базы данных SQLite
 DB_FILE = "database.db"
 
 active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
+# --- АВТОБЭКАП БАЗЫ ДАННЫХ В ЛС ВЛАДЕЛЬЦУ ---
+async def backup_database_to_owner():
+  if not OWNER_ID:
+    return
+  if os.path.exists(DB_FILE):
+    try:
+      file = FSInputFile(DB_FILE)
+      await bot.send_document(
+          OWNER_ID,
+          document=file,
+          caption=(
+              "🛡 **Автобэкап базы данных «Бот Бандит»**\nСохранен на случай"
+              " перезагрузки сервера."
+          ),
+      )
+    except Exception as e:
+      print(f"Ошибка отправки бэкапа: {e}")
+
+
 # --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
-  # Таблица пользователей
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -55,7 +73,6 @@ def init_db():
             rank TEXT DEFAULT 'Скуф / Обычный чел'
         )
     """)
-  # Таблица бизнесов игроков
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS businesses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +81,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     """)
-  # Таблица машин (Автосалон)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS cars (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,13 +123,11 @@ def get_user(user_id, username=None):
       )
       conn.commit()
 
-  # Получаем бизнесы пользователя
   cursor.execute(
       "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
   )
   businesses = [b[0] for b in cursor.fetchall()]
 
-  # Получаем машины пользователя
   cursor.execute("SELECT car_key FROM cars WHERE user_id = ?", (user_id,))
   cars = [c[0] for c in cursor.fetchall()]
 
@@ -151,7 +165,7 @@ def update_user_money_and_stats(
   conn.close()
 
 
-def add_user_business(user_id, biz_key):
+async def add_user_business_and_backup(user_id, biz_key):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute(
@@ -160,9 +174,10 @@ def add_user_business(user_id, biz_key):
   )
   conn.commit()
   conn.close()
+  await backup_database_to_owner()
 
 
-def add_user_car(user_id, car_key):
+async def add_user_car_and_backup(user_id, car_key):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute(
@@ -170,6 +185,7 @@ def add_user_car(user_id, car_key):
   )
   conn.commit()
   conn.close()
+  await backup_database_to_owner()
 
 
 def get_top_users(limit=10):
@@ -370,13 +386,27 @@ def get_admin_menu():
 # --- ОБРАБОТЧИКИ ---
 
 
+@dp.message(F.document & (F.from_user.id == OWNER_ID))
+async def restore_db_from_file(message: Message):
+  # Функция восстановления базы из файла, если владелец скинул его в ЛС
+  document = message.document
+  if document.file_name.endswith(".db"):
+    file_info = await bot.get_file(document.file_id)
+    await bot.download(file_info, destination=DB_FILE)
+    await message.answer(
+        "✅ База данных успешно восстановлена из отправленного файла!"
+    )
+  else:
+    await message.answer("❌ Файл должен иметь расширение .db")
+
+
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
   get_user(message.from_user.id, message.from_user.username)
   user_name = message.from_user.first_name or "Бро"
   text = (
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "Залетай в новый Автосалон, скупай тачки, бизнесы и поднимайся к успеху!"
+      "Автосалон, бизнесы и казино ждут тебя!"
   )
   await message.answer(text, reply_markup=get_main_menu())
 
@@ -509,6 +539,7 @@ async def admin_process_action(message: Message):
     amount = int(arg)
     new_money = target_user["money"] + amount
     update_user_money_and_stats(t_id, money=new_money)
+    await backup_database_to_owner()
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
         f" Новый баланс: ${new_money:,}",
@@ -522,7 +553,7 @@ async def admin_process_action(message: Message):
           " casino_biz, vip_cartel"
       )
       return
-    add_user_business(t_id, arg)
+    await add_user_business_and_backup(t_id, arg)
     biz_name = BUSINESSES[arg]["name"]
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
@@ -571,7 +602,7 @@ async def buy_car_handler(message: Message):
 
   new_money = user["money"] - car_info["cost"]
   update_user_money_and_stats(user["user_id"], money=new_money)
-  add_user_car(user["user_id"], key)
+  await add_user_car_and_backup(user["user_id"], key)
 
   await message.answer(
       f"🎉 Поздравляем с покупкой! Ты приобрел **{car_info['name']}**!\nБаланс:"
@@ -711,6 +742,7 @@ async def process_job_choice(message: Message):
   if choice == correct_variant:
     new_money = user["money"] + prize
     update_user_money_and_stats(user_id, money=new_money)
+    await backup_database_to_owner()
     await message.answer(
         f"🎯 Четкий расчет! Выбор ({choice}) оказался верным.\nУспех! Получено:"
         f" **+${prize:,}**! 💸\nБаланс: ${new_money:,}",
@@ -779,6 +811,7 @@ async def casino_process_bet(message: Message):
     payout = bet_amount
     new_money = user["money"] + payout
     update_user_money_and_stats(user_id, money=new_money)
+    await backup_database_to_owner()
     await message.answer(
         f"🎲 Удача на твоей стороне! Выиграл **+${payout:,}**! 💰\nБаланс:"
         f" ${new_money:,}",
@@ -787,6 +820,7 @@ async def casino_process_bet(message: Message):
   else:
     new_money = user["money"] - bet_amount
     update_user_money_and_stats(user_id, money=new_money)
+    await backup_database_to_owner()
     await message.answer(
         f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела...\nБаланс:"
         f" ${new_money:,}",
@@ -835,7 +869,7 @@ async def buy_business_in_cash(message: Message):
 
   new_money = user["money"] - biz_info["cost"]
   update_user_money_and_stats(user.get("user_id"), money=new_money)
-  add_user_business(user.get("user_id"), key)
+  await add_user_business_and_backup(user.get("user_id"), key)
 
   await message.answer(
       f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
@@ -865,7 +899,7 @@ async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
 async def successful_payment_handler(message: Message):
   user_id = message.from_user.id
   get_user(user_id, message.from_user.username)
-  add_user_business(user_id, "vip_cartel")
+  await add_user_business_and_backup(user_id, "vip_cartel")
 
   if OWNER_ID and user_id != OWNER_ID:
     try:
@@ -938,6 +972,7 @@ async def market_buy_handler(message: Message):
   if is_vetements:
     new_rank = "Авторитет в VETEMENTS 🧥"
     update_user_money_and_stats(user["user_id"], money=new_money, rank=new_rank)
+    await backup_database_to_owner()
     await message.answer(
         f"Куплен **VETEMENTS**! Ранг: **{new_rank}** 🔥\nБаланс:"
         f" ${new_money:,}",
@@ -948,6 +983,7 @@ async def market_buy_handler(message: Message):
     update_user_money_and_stats(
         user["user_id"], money=new_money, defense=new_def
     )
+    await backup_database_to_owner()
     await message.answer(
         f"Защита прокачана! Теперь защита: **{new_def}** 🛡\nБаланс:"
         f" ${new_money:,}",
@@ -995,7 +1031,7 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита с Автосалоном и SQLite...")
+  print("Запуск бота бандита с системой автобэкапов в ЛС...")
 
   # Инициализируем таблицы базы данных при старте
   init_db()
@@ -1003,6 +1039,9 @@ async def main():
   # Запускаем веб-сервер и фоновый самопинг
   asyncio.create_task(start_web_server())
   asyncio.create_task(keep_alive())
+
+  # При запуске отправляем актуальный бэкап в ЛС владельцу
+  await backup_database_to_owner()
 
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
