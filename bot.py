@@ -41,7 +41,7 @@ active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
-# --- АВТОБЭКАП БАЗЫ ДАННЫХ В ЛС ВЛАДЕЛЬЦУ ---
+# --- АВТОБЭКАП И АВТОВОССТАНОВЛЕНИЕ ИЗ ЛС ВЛАДЕЛЬЦУ ---
 async def backup_database_to_owner():
   if not OWNER_ID:
     return
@@ -58,6 +58,24 @@ async def backup_database_to_owner():
       )
     except Exception as e:
       print(f"Ошибка отправки бэкапа: {e}")
+
+
+async def restore_latest_database():
+  """Ищет последний файл database.db в чате с владельцем и скачивает его при старте"""
+  if not OWNER_ID:
+    return
+  try:
+    # Получаем историю сообщений из чата с владельцем
+    messages = await bot.get_chat_history(chat_id=OWNER_ID, limit=20)
+    for msg in messages:
+      if msg.document and msg.document.file_name == "database.db":
+        file_info = await bot.get_file(msg.document.file_id)
+        await bot.download(file_info, destination=DB_FILE)
+        print("✅ База данных успешно восстановлена из последнего бэкапа в ЛС!")
+        return
+    print("ℹ️ Предыдущих бэкапов в ЛС не найдено, создается новая база.")
+  except Exception as e:
+    print(f"Ошибка автоматического восстановления базы: {e}")
 
 
 # --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
@@ -388,7 +406,6 @@ def get_admin_menu():
 
 @dp.message(F.document & (F.from_user.id == OWNER_ID))
 async def restore_db_from_file(message: Message):
-  # Функция восстановления базы из файла, если владелец скинул его в ЛС
   document = message.document
   if document.file_name.endswith(".db"):
     file_info = await bot.get_file(document.file_id)
@@ -1031,17 +1048,17 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита с системой автобэкапов в ЛС...")
+  print("Запуск бота бандита с автовосстановлением из ЛС...")
 
-  # Инициализируем таблицы базы данных при старте
+  # Пытаемся автоматически скачать последний бэкап базы данных из ЛС владельца
+  await restore_latest_database()
+
+  # Инициализируем таблицы базы данных при старте (если файла не было — создастся пустой)
   init_db()
 
   # Запускаем веб-сервер и фоновый самопинг
   asyncio.create_task(start_web_server())
   asyncio.create_task(keep_alive())
-
-  # При запуске отправляем актуальный бэкап в ЛС владельцу
-  await backup_database_to_owner()
 
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
