@@ -189,14 +189,18 @@ async def add_user_car_and_backup(user_id, car_key):
 
 
 def get_top_users(limit=10):
-  """Простой и надежный запрос топ-10 игроков по бабосам"""
+  """Безопасный запрос топа игроков"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
-  cursor.execute(
-      "SELECT username, money FROM users ORDER BY money DESC LIMIT ?",
-      (limit,),
-  )
-  rows = cursor.fetchall()
+  try:
+    cursor.execute(
+        "SELECT username, money FROM users ORDER BY money DESC LIMIT ?",
+        (limit,),
+    )
+    rows = cursor.fetchall()
+  except Exception as e:
+    print(f"Ошибка SQL топа: {e}")
+    rows = []
   conn.close()
   return rows
 
@@ -458,13 +462,15 @@ async def top_players_handler(message: Message):
     for i, (u_name, money) in enumerate(top_rows, 1):
       medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
       name_display = f"@{u_name}" if u_name else "Безымянный"
-      text += f"{medals} {name_display} — 💰 **${money:,}**\n"
+      safe_money = money if money is not None else 0
+      text += f"{medals} {name_display} — 💰 **${safe_money:,}**\n"
 
     await message.answer(text, reply_markup=get_main_menu())
   except Exception as e:
-    print(f"Ошибка топа: {e}")
+    print(f"Ошибка отображения топа: {e}")
     await message.answer(
-        "⚠️ Произошла ошибка при загрузке топа.", reply_markup=get_main_menu()
+        "🏆 Топ пустует или база обновляется. Попробуй позже!",
+        reply_markup=get_main_menu(),
     )
 
 
