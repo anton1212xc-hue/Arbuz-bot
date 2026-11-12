@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import random
@@ -20,7 +21,7 @@ from aiogram.types import (
 # Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 OWNER_ID = 1780243435  # Твой личный ID
-ADMIN_PASSWORD = "gver1212"  # Твой пароль для админ-панели
+ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
 # Настройка кастомного сервера для ShuzaGram в aiogram 3.x
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
@@ -33,11 +34,41 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# Базы данных
-users_db = {}  # {user_id: user_data}
+# Файл для постоянного сохранения данных
+DB_FILE = "database.json"
+
+users_db = {}  # {user_id (int): user_data}
 username_to_id = {}  # Для поиска по @username
-active_games = {}  # {user_id: {"type": ..., "data": ...}}
+active_games = {}  # {user_id: {...}}
 admin_session = set()  # Список авторизованных админов
+
+
+# --- ФУНКЦИИ СОХРАНЕНИЯ И ЗАГРУЗКИ ---
+def load_database():
+  global users_db, username_to_id
+  if os.path.exists(DB_FILE):
+    try:
+      with open(DB_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        # JSON сохраняет ключи словарей как строки, конвертируем user_id обратно в int
+        users_db = {int(k): v for k, v in data.items()}
+        # Восстанавливаем словарь юзернеймов
+        for u_id, u_data in users_db.items():
+          if "username" in u_data and u_data["username"]:
+            username_to_id[u_data["username"].lower()] = u_id
+      print(f"База данных успешно загружена. Игроков: {len(users_db)}")
+    except Exception as e:
+      print(f"Ошибка загрузки базы данных: {e}")
+      users_db = {}
+
+
+def save_database():
+  try:
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+      # json требует строковые ключи, у нас user_id и так преобразуется
+      json.dump(users_db, f, ensure_ascii=False, indent=4)
+  except Exception as e:
+    print(f"Ошибка сохранения базы данных: {e}")
 
 
 def get_user(user_id, username=None):
@@ -48,11 +79,13 @@ def get_user(user_id, username=None):
         "money": 1000,
         "defense": 10,
         "rank": "Скуф / Обычный чел",
-        "businesses": [],  # Список купленных бизнесов (можно дублировать)
+        "businesses": [],
     }
   if username:
     users_db[user_id]["username"] = username.lower()
     username_to_id[username.lower()] = user_id
+
+  save_database()  # Автосохранение при получении/создании пользователя
   return users_db[user_id]
 
 
@@ -249,7 +282,7 @@ async def top_players_handler(message: Message):
   await message.answer(text, reply_markup=get_main_menu())
 
 
-# --- АДМИН-ПАНЕЛЬ С ВЫДАЧЕЙ ДЕНЕГ И БИЗНЕСОВ ПО ЮЗЕРНЕЙМУ ---
+# --- АДМИН-ПАНЕЛЬ ---
 
 
 @dp.message(F.text.startswith("/admin"))
@@ -348,6 +381,7 @@ async def admin_process_action(message: Message):
       return
     amount = int(arg)
     target_user["money"] += amount
+    save_database()
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
         f" Новый баланс: ${target_user['money']:,}",
@@ -362,6 +396,7 @@ async def admin_process_action(message: Message):
       )
       return
     target_user["businesses"].append(arg)
+    save_database()
     biz_name = BUSINESSES[arg]["name"]
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
@@ -473,6 +508,7 @@ async def process_job_choice(message: Message):
 
   if win:
     user["money"] += prize
+    save_database()
     await message.answer(
         f"🎯 Четкий расчет! Выбор ({choice}) верный.\nУспех! Получено:"
         f" **+${prize:,}**! 💸\nБаланс: ${user['money']:,}",
@@ -485,7 +521,7 @@ async def process_job_choice(message: Message):
     )
 
 
-# --- ПРОДВИНУТОЕ КАЗИНО (ВЫБОР СТАВКИ) ---
+# --- КАЗИНО ---
 
 
 @dp.message(F.text == "🎰 Казино")
@@ -550,9 +586,10 @@ async def casino_process_bet(message: Message):
         f" ${user['money']:,}",
         reply_markup=get_casino_menu(),
     )
+  save_database()
 
 
-# --- ПОКУПКА БИЗНЕСОВ (МУЛЬТИ-ПОКУПКА) ---
+# --- ПОКУПКА БИЗНЕСОВ ---
 
 
 @dp.message(F.text == "🏢 Бизнесы")
@@ -593,6 +630,7 @@ async def buy_business_in_cash(message: Message):
 
   user["money"] -= biz_info["cost"]
   user["businesses"].append(key)
+  save_database()
   await message.answer(
       f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
       f" ${biz_info['income']:,}/час.\nБаланс: ${user['money']:,}",
@@ -621,6 +659,7 @@ async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
 async def successful_payment_handler(message: Message):
   user = get_user(message.from_user.id, message.from_user.username)
   user["businesses"].append("vip_cartel")
+  save_database()
 
   if OWNER_ID and message.from_user.id != OWNER_ID:
     try:
@@ -704,6 +743,7 @@ async def market_buy_handler(message: Message):
         f" ${user['money']:,}",
         reply_markup=get_market_menu(),
     )
+  save_database()
 
 
 @dp.message()
@@ -714,9 +754,23 @@ async def echo_handler(message: Message):
   )
 
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- ВЕБ-СЕРВЕР И САМОПИНГ ДЛЯ RENDER ---
 async def handle(request):
   return web.Response(text="Бот Бандит на связи и работает!")
+
+
+async def keep_alive():
+  render_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000")
+  while True:
+    await asyncio.sleep(300)
+    try:
+      import aiohttp
+
+      async with aiohttp.ClientSession() as session:
+        async with session.get(render_url) as resp:
+          print(f"Пинг сервера для поддержания активности: статус {resp.status}")
+    except Exception as e:
+      print(f"Ошибка пинга: {e}")
 
 
 async def start_web_server():
@@ -734,7 +788,12 @@ async def main():
   logging.basicConfig(level=logging.INFO)
   print("Запуск бота бандита...")
 
+  # Загружаем сохраненную базу данных при старте
+  load_database()
+
+  # Запускаем веб-сервер и фоновый самопинг
   asyncio.create_task(start_web_server())
+  asyncio.create_task(keep_alive())
 
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
