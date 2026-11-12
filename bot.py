@@ -49,6 +49,29 @@ def get_work_menu():
   )
 
 
+def get_casino_menu():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text="🎲 Бросить кости"), KeyboardButton(text="🃏 Очко")],
+          [KeyboardButton(text="⬅️ Назад")],
+      ],
+      resize_keyboard=True,
+  )
+
+
+def get_market_menu():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [
+              KeyboardButton(text="👕 Купить шмотку"),
+              KeyboardButton(text="🛡 Защита"),
+          ],
+          [KeyboardButton(text="⬅️ Назад")],
+      ],
+      resize_keyboard=True,
+  )
+
+
 # --- ОБРАБОТЧИКИ ---
 
 
@@ -102,7 +125,15 @@ async def casino_handler(message: Message):
   await message.answer(
       "🎲 Добро пожаловать в кинцо «как остаться без трусов»!\nЗа какой стол"
       " сядете?",
-      reply_markup=get_main_menu(),
+      reply_markup=get_casino_menu(),  # Выделенная клавиатура для казино
+  )
+
+
+@dp.message(F.text.in_(["🎲 Бросить кости", "🃏 Очко"]))
+async def casino_game_handler(message: Message):
+  await message.answer(
+      f"Ты сыграл в игру **{message.text}**. Удача любит дерзких! 🎰",
+      reply_markup=get_casino_menu(),
   )
 
 
@@ -111,7 +142,15 @@ async def market_handler(message: Message):
   await message.answer(
       "🛍 **BB MARKET:**\nТут можно прикупить шмотки для поднятия авторитета и"
       " защиты.",
-      reply_markup=get_main_menu(),
+      reply_markup=get_market_menu(),  # Выделенная клавиатура для рынка
+  )
+
+
+@dp.message(F.text.in_(["👕 Купить шмотку", "🛡 Защита"]))
+async def market_buy_handler(message: Message):
+  await message.answer(
+"""Ты заглянул в ассортимент: **{message.text}**. Стиль — это всё! 🧢""",
+      reply_markup=get_market_menu(),
   )
 
 
@@ -143,10 +182,8 @@ async def main():
   logging.basicConfig(level=logging.INFO)
   print("Запуск бота бандита...")
 
-  # Запускаем фоновый веб-сервер для порта Render
   asyncio.create_task(start_web_server())
 
-  # Запускаем поллинг бота
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
 
