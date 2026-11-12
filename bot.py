@@ -188,23 +188,6 @@ async def add_user_car_and_backup(user_id, car_key):
   await backup_database_to_owner()
 
 
-def get_top_users(limit=10):
-  """Безопасный запрос топа игроков"""
-  conn = sqlite3.connect(DB_FILE)
-  cursor = conn.cursor()
-  try:
-    cursor.execute(
-        "SELECT username, money FROM users ORDER BY money DESC LIMIT ?",
-        (limit,),
-    )
-    rows = cursor.fetchall()
-  except Exception as e:
-    print(f"Ошибка SQL топа: {e}")
-    rows = []
-  conn.close()
-  return rows
-
-
 def get_all_user_ids():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -451,25 +434,34 @@ async def profile_handler(message: Message):
 @dp.message(F.text == "🏆 Топ бандюков")
 async def top_players_handler(message: Message):
   try:
-    top_rows = get_top_users(10)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT username, money FROM users ORDER BY money DESC LIMIT 10"
+    )
+    top_rows = cursor.fetchall()
+    conn.close()
+
     if not top_rows:
       await message.answer(
-          "🏆 Пока что в топе никого нет.", reply_markup=get_main_menu()
+          "🏆 В базе данных пока нет ни одной записи игроков.",
+          reply_markup=get_main_menu(),
       )
       return
 
     text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
     for i, (u_name, money) in enumerate(top_rows, 1):
       medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-      name_display = f"@{u_name}" if u_name else "Безымянный"
+      name_display = f"@{u_name}" if u_name else "Бро"
       safe_money = money if money is not None else 0
       text += f"{medals} {name_display} — 💰 **${safe_money:,}**\n"
 
     await message.answer(text, reply_markup=get_main_menu())
+
   except Exception as e:
-    print(f"Ошибка отображения топа: {e}")
     await message.answer(
-        "🏆 Топ пустует или база обновляется. Попробуй позже!",
+        f"⚠️ Ошибка SQL в топе: `{e}`",
+        parse_mode="Markdown",
         reply_markup=get_main_menu(),
     )
 
