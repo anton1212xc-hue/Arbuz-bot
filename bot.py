@@ -66,7 +66,6 @@ def get_main_keyboard():
 
 @router.message(F.text == "/start")
 async def cmd_start(message: Message):
-    # Регистрируем пользователя, если его нет
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (message.from_user.id,))
@@ -79,7 +78,6 @@ async def cmd_start(message: Message):
         reply_markup=get_main_keyboard()
     )
 
-@router.callback_data(F.data == "back_to_main") # уберем декоратор ошибки, заменим ниже стандартным F.data
 @router.callback_query(F.data == "back_to_main")
 async def back_main(callback: CallbackQuery):
     await callback.message.edit_text(
@@ -169,7 +167,7 @@ async def start_sell(callback: CallbackQuery, state: FSMContext):
 @router.message(SellNFT.waiting_for_title)
 async def process_title(message: Message, state: FSMContext):
     await state.update_data(title=message.text)
-    await message.answer("📄 Теперь введите **описание** NFT (какие привилегии или особенности):")
+    await message.answer("📄 Теперь введите **описание** NFT:")
     await state.set_state(SellNFT.waiting_for_description)
 
 @router.message(SellNFT.waiting_for_description)
@@ -187,7 +185,6 @@ async def process_price(message: Message, state: FSMContext):
     price = int(message.text)
     data = await state.get_data()
     
-    # Сохраняем в базу данных
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
     cursor.execute(
@@ -222,8 +219,6 @@ async def buy_nft_process(callback: CallbackQuery):
 
     title, price, seller_id = nft
     prices = [LabeledPrice(label=title, amount=price)]
-
-    # Payload содержит ID лота и ID продавца, чтобы после оплаты начислить ему звёзды
     payload_data = f"nft_{nft_id}_seller_{seller_id}"
 
     await callback.message.answer_invoice(
@@ -242,7 +237,7 @@ async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery):
 @router.message(F.successful_payment)
 async def success_payment(message: Message):
     payment_info = message.successful_payment
-    payload = payment_info.invoice_payload # формат: nft_<id>_seller_<seller_id>
+    payload = payment_info.invoice_payload
     
     try:
         parts = payload.split("_")
@@ -252,15 +247,13 @@ async def success_payment(message: Message):
         nft_id = None
         seller_id = None
 
-    amount = payment_info.total_amount # количество звезд
+    amount = payment_info.total_amount
 
     if nft_id:
         conn = sqlite3.connect("marketplace.db")
         cursor = conn.cursor()
-        # Помечаем товар как проданный
         cursor.execute("UPDATE nfts SET status = 'sold' WHERE id = ?", (nft_id,))
         
-        # Начисляем звезды продавцу на внутренний баланс
         if seller_id:
             cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, seller_id))
             
@@ -284,7 +277,6 @@ async def show_profile(callback: CallbackQuery):
     row = cursor.fetchone()
     balance = row[0] if row else 0
 
-    # Считаем количество активных лотов пользователя
     cursor.execute("SELECT COUNT(*) FROM nfts WHERE seller_id = ? AND status = 'active'", (callback.from_user.id,))
     active_listings = cursor.fetchone()[0]
     conn.close()
