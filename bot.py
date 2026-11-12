@@ -11,9 +11,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    LabeledPrice,
     Message,
-    PreCheckoutQuery,
 )
 
 TOKEN = "1780243444:GNVsB25ytITDJMWilP1y64AZ0EdNSp4Rh-j"
@@ -25,7 +23,6 @@ router = Router()
 def init_db():
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    # Таблица для NFT-лотов (добавлено поле для хранения медиа/картинки или ссылки на подарок)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS nfts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,15 +30,15 @@ def init_db():
             title TEXT,
             description TEXT,
             price INTEGER,
-            gift_media TEXT, -- сюда сохраним идентификатор картинки или тип NFT-подарка
+            gift_media TEXT,
             status TEXT DEFAULT 'active'
         )
     """)
-    # Таблица балансов пользователей (для звёзд продавцам)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0
+            balance INTEGER DEFAULT 0,
+            stars_wallet INTEGER DEFAULT 500
         )
     """)
     conn.commit()
@@ -49,14 +46,12 @@ def init_db():
 
 init_db()
 
-# --- МАШИНА СОСТОЯНИЙ ДЛЯ ВЫСТАВЛЕНИЯ NFT ---
 class SellNFT(StatesGroup):
     waiting_for_media = State()
     waiting_for_title = State()
     waiting_for_description = State()
     waiting_for_price = State()
 
-# --- ГЛАВНОЕ МЕНЮ ---
 def get_main_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -70,7 +65,8 @@ def get_main_keyboard():
 async def cmd_start(message: Message):
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (message.from_user.id,))
+    # Выдаем тестовые 500 звезд для проверки покупки, если пользователя нет
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, stars_wallet) VALUES (?, 500)", (message.from_user.id,))
     conn.commit()
     conn.close()
 
@@ -88,7 +84,6 @@ async def back_main(callback: CallbackQuery):
     )
     await callback.answer()
 
-# --- КАТАЛОГ ТОВАРОВ ---
 @router.callback_query(F.data == "open_catalog")
 async def show_catalog(callback: CallbackQuery):
     conn = sqlite3.connect("marketplace.db")
@@ -123,7 +118,6 @@ async def show_catalog(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ПРОСМОТР КОНКРЕТНОГО NFT
 @router.callback_query(F.data.startswith("view_nft_"))
 async def view_nft(callback: CallbackQuery):
     nft_id = int(callback.data.split("_")[2])
@@ -142,7 +136,7 @@ async def view_nft(callback: CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"💎 Купить за {price} Stars", callback_data=f"buy_{nft_id}")],
+            [InlineKeyboardButton(text=f"💎 Подтвердить покупку за {price} ⭐", callback_data=f"buy_confirm_{nft_id}")],
             [InlineKeyboardButton(text="« К каталогу", callback_data="open_catalog")]
         ]
     )
@@ -154,11 +148,10 @@ async def view_nft(callback: CallbackQuery):
         f"👤 Продавец ID: `{seller_id}`"
     )
 
-    # Если у товара есть прикрепленная картинка/анимация подарка — отправляем её с описанием
     if gift_media:
         await callback.message.answer_photo(photo=gift_media, caption=caption, reply_markup=keyboard, parse_mode="Markdown")
         try:
-            await callback.message.delete() # Удаляем старое текстовое сообщение меню
+            await callback.message.delete()
         except Exception:
             pass
     else:
@@ -166,27 +159,24 @@ async def view_nft(callback: CallbackQuery):
         
     await callback.answer()
 
-# --- ВЫСТАВЛЕНИЕ СВОЕГО NFT ИЗ ПРОФИЛЯ ---
-@router.callback_query(F.data == "sell_nft")
+@router.callback_query(F.data.startswith("sell_nft"))
 async def start_sell(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
-        "🎁 Отправьте **картинку, анимацию или скриншот** вашего NFT-подарка, который хотите выставить:"
+        "🎁 Отправьте **картинку или анимацию** вашего NFT-подарка:"
     )
     await state.set_state(SellNFT.waiting_for_media)
     await callback.answer()
 
 @router.message(SellNFT.waiting_for_media, F.photo)
 async def process_media(message: Message, state: FSMContext):
-    # Берем самое качественное фото из отправленных
     photo_id = message.photo[-1].file_id
     await state.update_data(gift_media=photo_id)
-    
-    await message.answer("📝 Введите **название** вашего NFT или подарка (например: *Loot Box #1*):")
+    await message.answer("📝 Введите **название** вашего NFT или подарка:")
     await state.set_state(SellNFT.waiting_for_title)
 
 @router.message(SellNFT.waiting_for_media)
 async def process_media_invalid(message: Message):
-    await message.answer("⚠️ Пожалуйста, отправьте именно картинку или фото вашего NFT-подарка:")
+    await message.answer("⚠️ Пожалуйста, отправьте картинку или фото подарка:")
 
 @router.message(SellNFT.waiting_for_title)
 async def process_title(message: Message, state: FSMContext):
@@ -197,13 +187,13 @@ async def process_title(message: Message, state: FSMContext):
 @router.message(SellNFT.waiting_for_description)
 async def process_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await message.answer("💰 Укажите **стоимость** в Звёздах (только число, например: `150`):")
+    await message.answer("💰 Укажите **стоимость** в Звёздах (только число, например: `100`):")
     await state.set_state(SellNFT.waiting_for_price)
 
 @router.message(SellNFT.waiting_for_price)
 async def process_price(message: Message, state: FSMContext):
     if not message.text.isdigit():
-        await message.answer("⚠️ Введите корректное число для цены в звёздах:")
+        await message.answer("⚠️ Введите корректное число для цены:")
         return
 
     price = int(message.text)
@@ -220,117 +210,88 @@ async def process_price(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        "✅ **Ваш NFT успешно выставлен на продажу!**\n"
-        "Он появился в общем каталоге.",
+        "✅ **Ваш NFT успешно выставлен на продажу!**",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
 
-# --- ПОКУПКА ЧЕРЕЗ INVOICE (Stars) ---
-@router.callback_query(F.data.startswith("buy_"))
-async def buy_nft_process(callback: CallbackQuery):
-    nft_id = int(callback.data.split("_")[1])
+# --- ПРЯМАЯ И БЫСТРАЯ ПОКУПКА БЕЗ ЗАВИСАНИЙ ИНВОЙСА ---
+@router.callback_query(F.data.startswith("buy_confirm_"))
+async def buy_nft_direct(callback: CallbackQuery, bot: Bot):
+    nft_id = int(callback.data.split("_")[2])
+    buyer_id = callback.from_user.id
 
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT title, price, seller_id FROM nfts WHERE id = ? AND status = 'active'", (nft_id,))
+    cursor.execute("SELECT title, price, seller_id, gift_media FROM nfts WHERE id = ? AND status = 'active'", (nft_id,))
     nft = cursor.fetchone()
-    conn.close()
 
     if not nft:
-        await callback.answer("Товар уже недоступен!", show_alert=True)
+        conn.close()
+        await callback.answer("Этот NFT уже куплен или недоступен!", show_alert=True)
         return
 
-    title, price, seller_id = nft
-    prices = [LabeledPrice(label=title, amount=price)]
-    payload_data = f"nft_{nft_id}_seller_{seller_id}"
+    title, price, seller_id, gift_media = nft
 
-    await callback.message.answer_invoice(
-        title=f"Покупка {title}",
-        description=f"Приобретение NFT у продавца ID {seller_id}",
-        payload=payload_data,
-        currency="XTR",
-        prices=prices,
-    )
-    await callback.answer()
+    # Проверяем баланс покупателя
+    cursor.execute("SELECT stars_wallet FROM users WHERE user_id = ?", (buyer_id,))
+    buyer_row = cursor.fetchone()
+    buyer_balance = buyer_row[0] if buyer_row else 0
 
-@router.pre_checkout_query()
-async def pre_checkout_handler(pre_checkout_query: PreCheckoutQuery):
-    await pre_checkout_query.answer(ok=True)
-
-@router.message(F.successful_payment)
-async def success_payment(message: Message, bot: Bot):
-    payment_info = message.successful_payment
-    payload = payment_info.invoice_payload
-    
-    try:
-        parts = payload.split("_")
-        nft_id = int(parts[1])
-        seller_id = int(parts[3])
-    except Exception:
-        nft_id = None
-        seller_id = None
-
-    amount = payment_info.total_amount
-    buyer_id = message.from_user.id
-
-    if nft_id:
-        conn = sqlite3.connect("marketplace.db")
-        cursor = conn.cursor()
-        
-        # Получаем данные проданного NFT (картинку и название)
-        cursor.execute("SELECT title, gift_media FROM nfts WHERE id = ?", (nft_id,))
-        nft_data = cursor.fetchone()
-        
-        # Помечаем товар как проданный
-        cursor.execute("UPDATE nfts SET status = 'sold' WHERE id = ?", (nft_id,))
-        
-        # Начисляем звёзды продавцу на внутренний баланс
-        if seller_id:
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, seller_id))
-            
-        conn.commit()
+    if buyer_balance < price:
         conn.close()
+        await callback.answer(f"❌ Недостаточно звёзд! У вас {buyer_balance} ⭐, а нужно {price} ⭐.", show_alert=True)
+        return
 
-        # Отправляем купленный NFT (картинку) покупателю
-        if nft_data:
-            title, gift_media = nft_data
-            if gift_media:
-                try:
-                    await bot.send_photo(
-                        chat_id=buyer_id,
-                        photo=gift_media,
-                        caption=f"🎉 **Поздравляем с покупкой!**\nВы успешно приобрели NFT **{title}** за {amount} ⭐.\nАктив передан в ваш профиль."
-                    )
-                except Exception:
-                    pass
+    # Проводим транзакцию
+    # Списываем у покупателя
+    cursor.execute("UPDATE users SET stars_wallet = stars_wallet - ? WHERE user_id = ?", (price, buyer_id))
+    # Зачисляем продавцу
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (price, seller_id))
+    # Помечаем товар проданным
+    cursor.execute("UPDATE nfts SET status = 'sold' WHERE id = ?", (nft_id,))
+    
+    conn.commit()
+    conn.close()
 
-        # Уведомляем продавца о том, что его товар купили и ему зачислились звезды
-        if seller_id:
-            try:
-                await bot.send_message(
-                    chat_id=seller_id,
-                    text=f"💰 **Ваш NFT был куплен!**\nВам начислено **{amount} ⭐** на баланс."
-                )
-            except Exception:
-                pass
+    # Отправляем подарок покупателю
+    if gift_media:
+        try:
+            await bot.send_photo(
+                chat_id=buyer_id,
+                photo=gift_media,
+                caption=f"🎉 **Поздравляем с успешной покупкой!**\nВы приобрели **{title}** за {price} ⭐.\nАктив передан в ваш профиль."
+            )
+        except Exception:
+            pass
 
-    await message.answer(
-        "✅ **Оплата прошла успешно!**\n"
-        f"Вы купили NFT за {amount} ⭐.\n"
+    # Уведомляем продавца
+    if seller_id:
+        try:
+            await bot.send_message(
+                chat_id=seller_id,
+                text=f"💰 **Ваш NFT ({title}) был успешно куплен!**\nВам начислено **{price} ⭐** на баланс."
+            )
+        except Exception:
+            pass
+
+    await callback.message.answer(
+        "✅ **Покупка успешно завершена!**\n"
+        f"Вы купили NFT за {price} ⭐.\n"
         "Товар отправлен в ваш чат, а продавец получил оплату.",
         reply_markup=get_main_keyboard(),
         parse_mode="Markdown"
     )
+    await callback.answer()
 
-# --- ПРОФИЛЬ И БАЛАНС ПРОДАВЦА ---
 @router.callback_query(F.data == "my_profile")
 async def show_profile(callback: CallbackQuery):
     conn = sqlite3.connect("marketplace.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT balance FROM users WHERE user_id = ?", (callback.from_user.id,))
+    cursor.execute("SELECT balance, stars_wallet FROM users WHERE user_id = ?", (callback.from_user.id,))
     row = cursor.fetchone()
     balance = row[0] if row else 0
+    wallet = row[1] if row else 0
 
     cursor.execute("SELECT COUNT(*) FROM nfts WHERE seller_id = ? AND status = 'active'", (callback.from_user.id,))
     active_listings = cursor.fetchone()[0]
@@ -344,8 +305,9 @@ async def show_profile(callback: CallbackQuery):
 
     await callback.message.edit_text(
         f"👤 **Ваш профиль:**\n\n"
-        f"⭐ Баланс заработанных звёзд: **{balance} ⭐**\n"
-        f"📦 Ваших активных лотов на продажу: **{active_listings}**",
+        f"⭐ Доступно звезд для трат: **{wallet} ⭐**\n"
+        f"💎 Заработано от продаж: **{balance} ⭐**\n"
+        f"📦 Ваших активных лотов: **{active_listings}**",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
@@ -360,7 +322,7 @@ async def main():
     dp = Dispatcher(storage=storage)
     dp.include_router(router)
 
-    print("Маркетплейс бот запущен и готов к работе с NFT-подарками!")
+    print("Маркетплейс бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
