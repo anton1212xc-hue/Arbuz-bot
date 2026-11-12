@@ -1,7 +1,8 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     CallbackQuery,
@@ -14,8 +15,10 @@ from aiogram.types import (
 
 # Токен из вашего скриншота
 TOKEN = "1780243444:GNVsB25ytITDJMWilP1y64AZ0EdNSp4Rh-j"
-# Кастомный базовый URL для ShuzaGram API
-SHUZAGRAM_API_URL = "https://api.shuzagram.com/bot{token}/{method}"
+
+# Кастомный базовый URL для ShuzaGram API (согласно их документации)
+# Обратите внимание: TelegramAPIServer сам подставит нужные методы (/bot<token>/<method>)
+SHUZAGRAM_SERVER_BASE = "https://api.shuzagram.com"
 
 router = Router()
 
@@ -42,7 +45,6 @@ async def cmd_start(message: Message):
 # 2. Обработка нажатия на инлайн-кнопку «Каталог»
 @router.callback_query(F.data == "open_catalog")
 async def show_catalog(callback: CallbackQuery):
-  # Пример карточки товара (NFT) с инлайн-кнопкой покупки
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -65,7 +67,7 @@ async def show_catalog(callback: CallbackQuery):
       reply_markup=keyboard,
       parse_mode="Markdown",
   )
-  await callback.answer()  # Закрываем "часики" на кнопке
+  await callback.answer()
 
 
 # Возврат в главное меню
@@ -86,26 +88,24 @@ async def back_main(callback: CallbackQuery):
   await callback.answer()
 
 
-# 3. Инициирование покупки NFT за Звёзды (отправка инвойса)
+# 3. Инициирование покупки NFT за Звёзды
 @router.callback_query(F.data == "buy_nft_1")
 async def buy_nft(callback: CallbackQuery):
-  # Валюта XTR обозначает Telegram Stars
   prices = [LabeledPrice(label="NFT #001", amount=50)]
 
   await callback.message.answer_invoice(
       title="Покупка NFT #001",
       description="Приобретение цифрового актива Cyber Punk Cat",
-      payload="nft_pay_payload_001",  # Уникальный полезный нагрузочный тег для вашей базы данных
+      payload="nft_pay_payload_001",
       currency="XTR",  # Валюта Звёзд Telegram
       prices=prices,
   )
   await callback.answer()
 
 
-# 4. Обязательный этап перед подтверждением платежа
+# 4. Предпроверка платежа
 @router.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
-  # Здесь можно проверить, есть ли еще товар в наличии в вашей БД
   await pre_checkout_query.answer(ok=True)
 
 
@@ -113,7 +113,6 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
 @router.message(F.successful_payment)
 async def success_payment(message: Message):
   payment_info = message.successful_payment
-  # Тут вы заносите в базу данных информацию о том, что NFT перешел к новому владельцу (message.from_user.id)
   await message.answer(
       "✅ **Оплата прошла успешно!**\n"
       f"Вы купили NFT за {payment_info.total_amount} ⭐.\n"
@@ -123,16 +122,17 @@ async def success_payment(message: Message):
 
 
 async def main():
-  # Инициализация бота с переопределением базового URL для ShuzaGram
-  bot = Bot(
-      token=TOKEN,
-      default=DefaultBotProperties(base_url=SHUZAGRAM_API_URL),
-  )
+  # Создаем конфигурацию для кастомного сервера ShuzaGram API через TelegramAPIServer
+  custom_server = TelegramAPIServer.from_base(SHUZAGRAM_SERVER_BASE)
+  session = AiohttpSession(api=custom_server)
+
+  # Передаем сессию в инициализацию бота
+  bot = Bot(token=TOKEN, session=session)
   storage = MemoryStorage()
   dp = Dispatcher(storage=storage)
   dp.include_router(router)
 
-  print("Бот запущен и готов принимать запросы через ShuzaGram...")
+  print("Бот успешно запущен и подключен к ShuzaGram!")
   await dp.start_polling(bot)
 
 
