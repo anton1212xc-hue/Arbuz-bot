@@ -1289,6 +1289,57 @@ async def echo_handler(message: Message):
   )
 
 
+# --- ФОНОВЫЙ ЕЖЕЧАСНЫЙ ДОХОД ОТ БИЗНЕСОВ ---
+async def hourly_business_income():
+  while True:
+    await asyncio.sleep(3600)  # Ждем ровно 1 час
+    try:
+      conn = sqlite3.connect(DB_FILE)
+      cursor = conn.cursor()
+
+      cursor.execute("SELECT DISTINCT user_id FROM businesses")
+      users_with_biz = cursor.fetchall()
+
+      for (u_id,) in users_with_biz:
+        cursor.execute(
+            "SELECT biz_key FROM businesses WHERE user_id = ?", (u_id,)
+        )
+        b_keys = [b[0] for b in cursor.fetchall()]
+
+        if not b_keys:
+          continue
+
+        from collections import Counter
+
+        counts = Counter(b_keys)
+        total_income = 0
+        for b_key, count in counts.items():
+          if b_key in BUSINESSES:
+            total_income += BUSINESSES[b_key]["income"] * count
+
+        if total_income > 0:
+          cursor.execute(
+              "UPDATE users SET money = money + ? WHERE user_id = ?",
+              (total_income, u_id),
+          )
+          conn.commit()
+
+          try:
+            await bot.send_message(
+                u_id,
+                f"💵 **Пассивный доход!**\nТвои бизнесы принесли тебе"
+                f" **+${total_income:,}** за прошедший час.",
+                parse_mode="Markdown",
+            )
+          except Exception:
+            pass
+
+      conn.close()
+      print("[INFO] Часовой пассивный доход успешно начислен всем игрокам.")
+    except Exception as e:
+      print(f"[ERROR] Ошибка начисления пассивного дохода: {e}")
+
+
 # --- ВЕБ-СЕРВЕР И САМОПИНГ ДЛЯ RENDER ---
 async def handle(request):
   return web.Response(text="Бот Бандит на связи и работает!")
@@ -1326,9 +1377,10 @@ async def main():
   # Инициализируем таблицы базы данных
   init_db()
 
-  # Запускаем веб-сервер и фоновый самопинг
+  # Запускаем веб-сервер, фоновый самопинг и часовой доход бизнесов
   asyncio.create_task(start_web_server())
   asyncio.create_task(keep_alive())
+  asyncio.create_task(hourly_business_income())
 
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
