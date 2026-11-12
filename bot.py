@@ -23,7 +23,7 @@ from aiogram.types import (
 )
 
 # Токен вашего бота
-TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
+TOKEN = "1780243435:AAG..."  # Твой токен
 OWNER_ID = 1780243435  # Твой личный ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
@@ -232,39 +232,31 @@ BUSINESSES = {
     },
 }
 
+# Сюда вместо заглушек вставь свои file_id картинок, когда загрузишь их боту
 CARS = {
     "vaz": {
         "name": "🚗 ВАЗ 2107 (Пуд соли)",
         "cost": 15000,
         "speed": "160 км/ч",
-        "image": (
-
-            "https://share.google/XS2cilphg0z3HR44u"
-        ),
+        "image": "ВАЗ_FILE_ID_СЮДА",
     },
     "bmw_e34": {
         "name": "🏎 BMW E34 (Бумер)",
         "cost": 80000,
         "speed": "240 км/ч",
-        "image": (
-            "https://share.google/sC3I3BNgKeix8GYNy"
-        ),
+        "image": "BMW_FILE_ID_СЮДА",
     },
     "gelik": {
         "name": "🚙 Mercedes G-Class (Гелик)",
         "cost": 350000,
         "speed": "220 км/ч",
-        "image": (
-            "https://share.google/JuM1JtSRLzDzimbIF"
-        ),
+        "image": "GELIK_FILE_ID_СЮДА",
     },
     "lamborghini": {
         "name": "🏎 Lamborghini Huracan",
         "cost": 1200000,
         "speed": "325 км/ч",
-        "image": (
-            "https://share.google/asZbe30cMDsZdsaJI"
-        ),
+        "image": "LAMBO_FILE_ID_СЮДА",
     },
 }
 car_keys = list(CARS.keys())
@@ -678,57 +670,57 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- ИНТЕРАКТИВНЫЙ АВТОСАЛОН С КАРТИНКАМИ И ЛИСТАНИЕМ ---
+# --- ИНТЕРАКТИВНЫЙ АВТОСАЛОН ЧЕРЕЗ FILE_ID ---
 
 
 async def show_car_page(message_or_callback, index=0, edit=True):
-    global car_keys
-    index = index % len(car_keys)
-    key = car_keys[index]
-    car = CARS[key]
+  global car_keys
+  index = index % len(car_keys)
+  key = car_keys[index]
+  car = CARS[key]
 
-    text = (
-        f"🚗 **Автосалон «У Палыча»**\n\n"
-        f"🚙 Модель: **{car['name']}**\n"
-        f"⚡️ Макс. скорость: `{car['speed']}`\n"
-        f"💰 Цена: **${car['cost']:,}**\n\n"
-        f"📄 Чёткая тачка, бери не пожалеешь!"
-    )
-    
-    reply_markup = get_autosalon_inline(index)
+  text = (
+      f"🚗 **Автосалон «У Палыча»**\n\n"
+      f"🚙 Модель: **{car['name']}**\n"
+      f"⚡️ Макс. скорость: `{car['speed']}`\n"
+      f"💰 Цена: **${car['cost']:,}**\n\n"
+      f"📄 Чёткая тачка, бери не пожалеешь!"
+  )
 
-    if edit and hasattr(message_or_callback, "message"):
-        call = message_or_callback
-        try:
-            # Пробуем обновить картинку
-            await call.message.edit_media(
-                media=InputMediaPhoto(media=car["image"], caption=text, parse_mode="Markdown"),
-                reply_markup=reply_markup
-            )
-        except Exception:
-            # Если сервер ShuzaGram не смог прожевать внешнюю ссылку на фото — редактируем просто текст
-            try:
-                await call.message.edit_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-            except Exception:
-                pass
-        await call.answer()
-    else:
-        message = message_or_callback
-        try:
-            await message.answer_photo(
-                photo=car["image"],
-                caption=text,
-                parse_mode="Markdown",
-                reply_markup=reply_markup
-            )
-        except Exception:
-            # Запасной вариант: если фото не отправилось, шлем текстом с кнопками
-            await message.answer(
-                text,
-                parse_mode="Markdown",
-                reply_markup=reply_markup
-            )
+  reply_markup = get_autosalon_inline(index)
 
+  if edit and hasattr(message_or_callback, "message"):
+    call = message_or_callback
+    try:
+      await call.message.edit_media(
+          media=InputMediaPhoto(
+              media=car["image"], caption=text, parse_mode="Markdown"
+          ),
+          reply_markup=reply_markup,
+      )
+    except Exception as e:
+      print(f"Ошибка смены фото: {e}")
+      try:
+        await call.message.edit_text(
+            text, parse_mode="Markdown", reply_markup=reply_markup
+        )
+      except Exception:
+        pass
+    await call.answer()
+  else:
+    message = message_or_callback
+    try:
+      await message.answer_photo(
+          photo=car["image"],
+          caption=text,
+          parse_mode="Markdown",
+          reply_markup=reply_markup,
+      )
+    except Exception as e:
+      print(f"Ошибка отправки фото: {e}")
+      await message.answer(
+          text, parse_mode="Markdown", reply_markup=reply_markup
+      )
 
 
 @dp.message(F.text == "🚗 Автосалон")
