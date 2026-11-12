@@ -23,7 +23,7 @@ from aiogram.types import (
 )
 
 # Токен вашего бота
-TOKEN = "1780243435:AAG..."  # Твой токен
+TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"  # Твой токен
 OWNER_ID = 1780243435  # Твой личный ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
