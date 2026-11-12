@@ -22,8 +22,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Токен вашего бота
-TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"  # Твой токен
+# Твой актуальный токен бота
+TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 OWNER_ID = 1780243435  # Твой личный ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
@@ -232,7 +232,7 @@ BUSINESSES = {
     },
 }
 
-# Сюда вместо заглушек вставь свои file_id картинок, когда загрузишь их боту
+# --- КАТАЛОГ МАШИН (Сюда вставляй свои file_id вместо строк-заглушек) ---
 CARS = {
     "vaz": {
         "name": "🚗 ВАЗ 2107 (Пуд соли)",
@@ -668,6 +668,16 @@ async def admin_process_action(message: Message):
         f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
         reply_markup=get_admin_menu(),
     )
+
+
+# --- ПОМОЩНИК ДЛЯ ОПРЕДЕЛЕНИЯ FILE_ID (ОТПРАВЬ ФОТО БОТУ) ---
+@dp.message(F.photo)
+async def get_photo_id(message: Message):
+  photo = message.photo[-1]
+  file_id = photo.file_id
+  await message.answer(
+      f"📸 **file_id этой картинки:**\n`{file_id}`", parse_mode="Markdown"
+  )
 
 
 # --- ИНТЕРАКТИВНЫЙ АВТОСАЛОН ЧЕРЕЗ FILE_ID ---
