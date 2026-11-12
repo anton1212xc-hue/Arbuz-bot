@@ -19,8 +19,8 @@ from aiogram.types import (
 
 # Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
-OWNER_ID = 123456789  # Укажите ваш Telegram ID
-ADMIN_PASSWORD = "bandit2026"  # Пароль для админ-панели (можешь изменить)
+OWNER_ID = 1780243435  # Укажите ваш Telegram ID
+ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели (можешь изменить)
 
 # Настройка кастомного сервера для ShuzaGram в aiogram 3.x
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
