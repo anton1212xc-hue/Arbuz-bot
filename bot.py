@@ -19,7 +19,8 @@ from aiogram.types import (
 
 # Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
-OWNER_ID = 123456789  # Укажите ваш ID для получения уведомлений о донатах
+OWNER_ID = 123456789  # Укажите ваш Telegram ID
+ADMIN_PASSWORD = "bandit2026"  # Пароль для админ-панели (можешь изменить)
 
 # Настройка кастомного сервера для ShuzaGram в aiogram 3.x
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
@@ -32,10 +33,10 @@ bot = Bot(
 )
 dp = Dispatcher(storage=MemoryStorage())
 
-# База данных пользователей в памяти
+# Базы данных
 users_db = {}
-# Словарь для временного хранения активных мини-игр игроков
-active_games = {}
+active_games = {}  # {user_id: {"type": ..., "data": ...}}
+admin_session = set()  # Список авторизованных админов
 
 
 def get_user(user_id):
@@ -50,7 +51,6 @@ def get_user(user_id):
   return users_db[user_id]
 
 
-# Бизнесы (доход ровно на ноль меньше цены)
 BUSINESSES = {
     "shaurma": {"name": "🌭 Ларек с шаурмой", "cost": 5000, "income": 500},
     "carwash": {"name": "🚗 Автомойка", "cost": 25000, "income": 2500},
@@ -63,7 +63,7 @@ BUSINESSES = {
     "vip_cartel": {
         "name": "👑 Картель (За звезды)",
         "cost_stars": 250,
-        "income": 500000,  # 500k в час!
+        "income": 500000,
     },
 }
 
@@ -92,12 +92,58 @@ def get_work_menu():
   )
 
 
-# Клавиатура для мини-игр (выбор варианта)
-def get_minigame_menu():
+# Тематические клавиатуры для мини-игр на работах
+def get_ref_keyboard():
   return ReplyKeyboardMarkup(
       keyboard=[
-          [KeyboardButton(text="🔴 Красное"), KeyboardButton(text="⚫ Черное")],
-          [KeyboardButton(text="❌ Слинять с темы")],
+          [
+              KeyboardButton(text="💬 Спам в ЛС"),
+              KeyboardButton(text="📢 Пост в чате"),
+              KeyboardButton(text="🚪 Зайти в комменты"),
+          ],
+          [KeyboardButton(text="❌ Слинять")],
+      ],
+      resize_keyboard=True,
+  )
+
+
+def get_car_keyboard():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [
+              KeyboardButton(text="🔴 Красный провод"),
+              KeyboardButton(text="🔵 Синий провод"),
+              KeyboardButton(text="🟢 Зеленый провод"),
+          ],
+          [KeyboardButton(text="❌ Слинять")],
+      ],
+      resize_keyboard=True,
+  )
+
+
+def get_block_keyboard():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [
+              KeyboardButton(text="🛡 Сесть за укрытие"),
+              KeyboardButton(text="💥 Идти в лобовую"),
+              KeyboardButton(text="🏃 Обойти с фланга"),
+          ],
+          [KeyboardButton(text="❌ Слинять")],
+      ],
+      resize_keyboard=True,
+  )
+
+
+def get_fed_keyboard():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [
+              KeyboardButton(text="💼 Дать на лапу"),
+              KeyboardButton(text="🗣 Качать права"),
+              KeyboardButton(text="🤝 Порешать по понятиям"),
+          ],
+          [KeyboardButton(text="❌ Слинять")],
       ],
       resize_keyboard=True,
   )
@@ -119,8 +165,8 @@ def get_casino_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
           [
-              KeyboardButton(text="🎲 Бросить кости ($100)"),
-              KeyboardButton(text="🃏 Очко ($200)"),
+              KeyboardButton(text="🎲 Сыграть в кости"),
+              KeyboardButton(text="🃏 Сыграть в очко"),
           ],
           [KeyboardButton(text="⬅️ Назад")],
       ],
@@ -141,6 +187,16 @@ def get_market_menu():
   )
 
 
+def get_admin_menu():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text="➕ Накинуть $100,000"), KeyboardButton(text="🛡 Сделать макс. защиту")],
+          [KeyboardButton(text="🚪 Выйти из админки")],
+      ],
+      resize_keyboard=True,
+  )
+
+
 # --- ОБРАБОТЧИКИ ---
 
 
@@ -150,15 +206,14 @@ async def cmd_start(message: Message):
   user_name = message.from_user.first_name or "Бро"
   text = (
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "Здесь тебя ждет жесткая жизнь: проходи мини-игры на работах, поднимай"
-      " бабосы, скупай бизнесы с пассивным доходом и залетай в топ!"
+      "Здесь тебя ждет жесткая жизнь: уникальные мини-игры на работах,"
+      " продвинутое казино с выбором ставок, бизнесы и авторитет!"
   )
   await message.answer(text, reply_markup=get_main_menu())
 
 
 @dp.message(F.text == "⬅️ Назад")
 async def back_to_main(message: Message):
-  # Очищаем мини-игру если была активна
   active_games.pop(message.from_user.id, None)
   await message.answer("Главное меню, бро:", reply_markup=get_main_menu())
 
@@ -180,7 +235,6 @@ async def profile_handler(message: Message):
 
 @dp.message(F.text == "🏆 Топ бандюков")
 async def top_players_handler(message: Message):
-  # Сортируем пользователей по балансу
   sorted_users = sorted(
       users_db.values(), key=lambda x: x["money"], reverse=True
   )
@@ -191,39 +245,135 @@ async def top_players_handler(message: Message):
   await message.answer(text, reply_markup=get_main_menu())
 
 
-# --- РАБОТА С МИНИ-ИГРАМИ ---
+# --- АДМИН-ПАНЕЛЬ ---
+
+
+@dp.message(F.text.startswith("/admin"))
+async def admin_login_command(message: Message):
+  parts = message.text.split(maxsplit=1)
+  if len(parts) < 2:
+    await message.answer(
+        "Введи пароль вместе с командой, например: `/admin твой_пароль`",
+        parse_mode="Markdown",
+    )
+    return
+
+  password = parts[1]
+  if password == ADMIN_PASSWORD:
+    admin_session.add(message.from_user.id)
+    await message.answer(
+        "🔓 Пароль принят! Добро пожаловать в админ-панель.",
+        reply_markup=get_admin_menu(),
+    )
+  else:
+    await message.answer("❌ Неверный пароль!")
+
+
+@dp.message(F.text == "🚪 Выйти из админки")
+async def admin_logout(message: Message):
+  admin_session.discard(message.from_user.id)
+  await message.answer(
+      "Админ-режим отключен.", reply_markup=get_main_menu()
+  )
+
+
+@dp.message(F.text == "➕ Накинуть $100,000")
+async def admin_add_money(message: Message):
+  if message.from_user.id not in admin_session:
+    return
+  user = get_user(message.from_user.id)
+  user["money"] += 100000
+  await message.answer(
+      f"💵 Админ-бонус зачислен! Баланс: ${user['money']:,}",
+      reply_markup=get_admin_menu(),
+  )
+
+
+@dp.message(F.text == "🛡 Сделать макс. защиту")
+async def admin_max_defense(message: Message):
+  if message.from_user.id not in admin_session:
+    return
+  user = get_user(message.from_user.id)
+  user["defense"] = 999
+  user["rank"] = "Бессмертный Босс 👑"
+  await message.answer(
+      "🛡 Защита выкручена на максимум (999)! Ранг изменен.",
+      reply_markup=get_admin_menu(),
+  )
+
+
+# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
 
 
 @dp.message(F.text == "💼 Работа")
 async def work_handler(message: Message):
   await message.answer(
-      "мяумс, выбери движ. На каждой работе надо сыграть в мини-игру, иначе"
-      " без бабков останешься!",
+      "мяумс, выбери тему. В каждой работе своя уникальная мини-игра, где можно"
+      " подняться или остаться ни с чем:",
       reply_markup=get_work_menu(),
   )
 
 
-@dp.message(
-    F.text.in_([
-        "🤝 Раскидать рефки",
-        "🚕 Угон тачки",
-        "🧱 Стрелка за блок",
-        "👮 Сходняк",
-    ])
-)
-async def start_minigame(message: Message):
-  # Запускаем мини-игру: игроку нужно угадать правильный исход (Красное или Черное)
-  active_games[message.from_user.id] = message.text
+@dp.message(F.text == "🤝 Раскидать рефки")
+async def work_ref_start(message: Message):
+  active_games[message.from_user.id] = {"job": "ref"}
   await message.answer(
-      f"🎯 Ты двинулся на тему: **{message.text}**.\n"
-      "Чтобы залутать бабки, устрой мазу: выбирай цвет наудачу (Красное или"
-      " Черное). Ошибешься — пролетишь по полной!",
-      reply_markup=get_minigame_menu(),
+      "📱 Ты засел за спам. Куда закинешь пацанам ссылку?",
+      reply_markup=get_ref_keyboard(),
   )
 
 
-@dp.message(F.text.in_(["🔴 Красное", "⚫ Черное"]))
-async def process_minigame(message: Message):
+@dp.message(F.text == "🚕 Угон тачки")
+async def work_car_start(message: Message):
+  active_games[message.from_user.id] = {"job": "car"}
+  await message.answer(
+      "🚗 Взломал тачку под окнами. Какой провод дергать?",
+      reply_markup=get_car_keyboard(),
+  )
+
+
+@dp.message(F.text == "🧱 Стрелка за блок")
+async def work_block_start(message: Message):
+  active_games[message.from_user.id] = {"job": "block"}
+  await message.answer(
+      "🧱 На районе замес. Какую тактику выберешь?",
+      reply_markup=get_block_keyboard(),
+  )
+
+
+@dp.message(F.text == "👮 Сходняк")
+async def work_fed_start(message: Message):
+  active_games[message.from_user.id] = {"job": "fed"}
+  await message.answer(
+      "👮 Серьезный базар с авторитетами. Как поведешь себя?",
+      reply_markup=get_fed_keyboard(),
+  )
+
+
+@dp.message(F.text == "❌ Слинять")
+async def cancel_job(message: Message):
+  active_games.pop(message.from_user.id, None)
+  await message.answer("Соскочил с темы.", reply_markup=get_work_menu())
+
+
+# Обработка выборов в мини-играх
+@dp.message(
+    F.text.in_([
+        "💬 Спам в ЛС",
+        "📢 Пост в чате",
+        "🚪 Зайти в комменты",
+        "🔴 Красный провод",
+        "🔵 Синий провод",
+        "🟢 Зеленый провод",
+        "🛡 Сесть за укрытие",
+        "💥 Идти в лобовую",
+        "🏃 Обойти с фланга",
+        "💼 Дать на лапу",
+        "🗣 Качать права",
+        "🤝 Порешать по понятиям",
+    ])
+)
+async def process_job_choice(message: Message):
   user_id = message.from_user.id
   if user_id not in active_games:
     await message.answer(
@@ -231,44 +381,114 @@ async def process_minigame(message: Message):
     )
     return
 
-  job_name = active_games.pop(user_id)
+  game_data = active_games.pop(user_id)
+  job_type = game_data["job"]
   user = get_user(user_id)
+  choice = message.text
 
-  # Мини-игра: рандом угадывания
-  winning_choice = random.choice(["🔴 Красное", "⚫ Черное"])
-  user_choice = message.text
+  # Логика для каждой работы: только 1 вариант из 3 приносит победу
+  win = False
+  prize = 0
 
-  rewards = {
-      "🤝 Раскидать рефки": 200,
-      "🚕 Угон тачки": 500,
-      "🧱 Стрелка за блок": 900,
-      "👮 Сходняк": 1500,
-  }
-  prize = rewards.get(job_name, 300)
+  if job_type == "ref":
+    winning_choice = "📢 Пост в чате"
+    prize = 250
+    win = choice == winning_choice
+  elif job_type == "car":
+    winning_choice = "🔵 Синий провод"
+    prize = 600
+    win = choice == winning_choice
+  elif job_type == "block":
+    winning_choice = "🏃 Обойти с фланга"
+    prize = 1000
+    win = choice == winning_choice
+  elif job_type == "fed":
+    winning_choice = "🤝 Порешать по понятиям"
+    prize = 1800
+    win = choice == winning_choice
 
-  if user_choice == winning_choice:
+  if win:
     user["money"] += prize
     await message.answer(
-        f"🎯 Четкий выбор! Выпало {winning_choice}.\n"
-        f"Ты успешно справился с работой **{job_name}** и поднял **+${prize:,}**! 💸\n"
-        f"Баланс: ${user['money']:,}",
+        f"🎯 Четкий расчет! Твой выбор ({choice}) оказался верным.\n"
+        f"Ты успешно справился с темой и поднял **+${prize:,}**! 💸\nБаланс:"
+        f" ${user['money']:,}",
         reply_markup=get_work_menu(),
     )
   else:
     await message.answer(
-        f"💥 Не фартануло! Выпало {winning_choice}.\n"
-        f"Тебя спалили/отшили на теме **{job_name}**. Ушел ни с чем!",
+        f"💥 Мимо! Выбор ({choice}) прогорел. Менты / конкуренты тебя приняли,"
+        f" ушел ни с чем.",
         reply_markup=get_work_menu(),
     )
 
 
-@dp.message(F.text == "❌ Слинять с темы")
-async def cancel_minigame(message: Message):
-  active_games.pop(message.from_user.id, None)
+# --- ПРОДВИНУТОЕ КАЗИНО (ВЫБОР СТАВКИ И ИГРЫ) ---
+
+
+@dp.message(F.text == "🎰 Казино")
+async def casino_handler(message: Message):
   await message.answer(
-      "Ты соскочил с движухи. Возвращаемся в меню:",
-      reply_markup=get_work_menu(),
+      "🎲 Добро пожаловать в кинцо «как остаться без трусов»!\nВыбирай игру:",
+      reply_markup=get_casino_menu(),
   )
+
+
+@dp.message(F.text.in_(["🎲 Сыграть в кости", "🃏 Сыграть в очко"]))
+async def casino_select_game(message: Message):
+  g_type = "dice" if "кости" in message.text else "cards"
+  active_games[message.from_user.id] = {"casino": g_type}
+  await message.answer(
+      "💰 Напиши сумму, которую хочешь поставить (например: `500` или `5000`),"
+      " или нажми «Назад»:",
+      parse_mode="Markdown",
+      reply_markup=ReplyKeyboardMarkup(
+          keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True
+      ),
+  )
+
+
+# Обработка ставки в казино в текстовом виде
+@dp.message(
+    F.text.regexp(r"^\d+$").filter(lambda msg: msg.from_user.id in active_games)
+)
+async def casino_process_bet(message: Message):
+  user_id = message.from_user.id
+  bet_amount = int(message.text)
+  user = get_user(user_id)
+
+  if bet_amount <= 0:
+    await message.answer("Ставка должна быть больше нуля, бро.")
+    return
+
+  if user["money"] < bet_amount:
+    await message.answer(
+        f"Эу! У тебя нет столько бабла. Твой баланс: ${user['money']:,}",
+        reply_markup=get_casino_menu(),
+    )
+    active_games.pop(user_id, None)
+    return
+
+  game_info = active_games.pop(user_id)
+  user["money"] -= bet_amount
+
+  # Рандом исхода казино (шанс 50 на 50)
+  win = random.choice([True, False])
+
+  if win:
+    payout = bet_amount * 2
+    user["money"] += payout
+    await message.answer(
+        f"🎲 Удача на твоей стороне! Ты поднял куш **+${payout:,}**! 💰\nБаланс:"
+        f" ${user['money']:,}",
+        reply_markup=get_casino_menu(),
+    )
+  else:
+    await message.answer(
+        f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела в казино...\nБаланс:"
+        f" ${user['money']:,}",
+        reply_markup=get_casino_menu(),
+    )
 
 
 # --- БИЗНЕСЫ ---
@@ -277,9 +497,8 @@ async def cancel_minigame(message: Message):
 @dp.message(F.text == "🏢 Бизнесы")
 async def business_menu_handler(message: Message):
   await message.answer(
-      "🏢 **Биржа бизнесов:**\nПокупай предприятия. Доход каждого бизнеса равен"
-      " его цене с урезанным нулем!\n👑 Картель за 250 Звезд приносит аж"
-      " **500,000 в час**!",
+      "🏢 **Биржа бизнесов:**\nДоход каждого бизнеса равен его цене с урезанным"
+      " нулем!\n👑 Картель за 250 Звезд приносит **500,000 в час**!",
       reply_markup=get_business_menu(),
   )
 
@@ -321,9 +540,8 @@ async def buy_business_in_cash(message: Message):
   user["money"] -= biz_info["cost"]
   user["businesses"].append(key)
   await message.answer(
-      f"🎉 Поздравляю! Ты купил **{biz_info['name']}** за"
-      f" ${biz_info['cost']:,}!\nПрибыль: ${biz_info['income']:,}/час.\nБаланс:"
-      f" ${user['money']:,}",
+      f"🎉 Куплен **{biz_info['name']}** за ${biz_info['cost']:,}!\nПрибыль:"
+      f" ${biz_info['income']:,}/час.\nБаланс: ${user['money']:,}",
       reply_markup=get_business_menu(),
   )
 
@@ -371,8 +589,7 @@ async def successful_payment_handler(message: Message):
       pass
 
   await message.answer(
-      "👑 Оплата прошла успешно! **Картель** твой, авторитет на максимуме, доход"
-      " 500k/час пошел! 🔥",
+      "👑 Оплата прошла успешно! **Картель** твой, доход 500k/час активирован! 🔥",
       reply_markup=get_main_menu(),
   )
 
@@ -387,57 +604,18 @@ async def show_my_businesses(message: Message):
     )
     return
 
-  total_hourly_income = 0
+  total_income = 0
   text = "🏢 **Твои владения:**\n\n"
   for key in user["businesses"]:
     b = BUSINESSES[key]
-    total_hourly_income += b["income"]
+    total_income += b["income"]
     text += f"• {b['name']} — 💵 **${b['income']:,}/час**\n"
 
-  text += f"\n📊 **Общий пассивный доход в час:** ${total_hourly_income:,}"
+  text += f"\n📊 **Общий пассивный доход в час:** ${total_income:,}"
   await message.answer(text, reply_markup=get_business_menu())
 
 
-# --- КАЗИНО И МАГАЗИН ---
-
-
-@dp.message(F.text == "🎰 Казино")
-async def casino_handler(message: Message):
-  await message.answer(
-      "🎲 Добро пожаловать в кинцо «как остаться без трусов»!\nЗа какой стол"
-      " сядете?",
-      reply_markup=get_casino_menu(),
-  )
-
-
-@dp.message(F.text.in_(["🎲 Бросить кости ($100)", "🃏 Очко ($200)"]))
-async def casino_game_handler(message: Message):
-  user = get_user(message.from_user.id)
-  cost = 100 if "100" in message.text else 200
-
-  if user["money"] < cost:
-    await message.answer(
-        f"Эу, бро! Не хватает бабосов (${user['money']:,}). Иди работай!",
-        reply_markup=get_casino_menu(),
-    )
-    return
-
-  user["money"] -= cost
-  win = random.choice([True, False])
-
-  if win:
-    prize = cost * 2
-    user["money"] += prize
-    await message.answer(
-        f"🎲 Удача на твоей стороне! Выиграл **${prize:,}**! 💰\nБаланс:"
-        f" ${user['money']:,}",
-        reply_markup=get_casino_menu(),
-    )
-  else:
-    await message.answer(
-        f"🎲 Не фартануло. Проиграл ${cost}.\nБаланс: ${user['money']:,}",
-        reply_markup=get_casino_menu(),
-    )
+# --- МАГАЗИН ШМОТОК ---
 
 
 @dp.message(F.text == "🛒 Шмотки")
