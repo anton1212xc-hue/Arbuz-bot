@@ -61,17 +61,17 @@ async def backup_database_to_owner():
 
 
 async def restore_latest_database():
-  """Ищет последний файл database.db в чате с владельцем и скачивает его при старте"""
+  """Ищет самый свежий файл database.db в чате с владельцем и скачивает его при старте"""
   if not OWNER_ID:
     return
   try:
-    # Получаем историю сообщений из чата с владельцем
-    messages = await bot.get_chat_history(chat_id=OWNER_ID, limit=20)
+    messages = await bot.get_chat_history(chat_id=OWNER_ID, limit=30)
+    # Проходим по списку (в aiogram get_chat_history возвращает от новых к старым)
     for msg in messages:
       if msg.document and msg.document.file_name == "database.db":
         file_info = await bot.get_file(msg.document.file_id)
         await bot.download(file_info, destination=DB_FILE)
-        print("✅ База данных успешно восстановлена из последнего бэкапа в ЛС!")
+        print("✅ Самый свежий бэкап успешно скачан из ЛС при старте!")
         return
     print("ℹ️ Предыдущих бэкапов в ЛС не найдено, создается новая база.")
   except Exception as e:
