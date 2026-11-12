@@ -41,7 +41,7 @@ active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
-# --- АВТОБЭКАП И АВТОВОССТАНОВЛЕНИЕ ИЗ ЛС ВЛАДЕЛЬЦУ ---
+# --- АВТОБЭКАП В ЛС ВЛАДЕЛЬЦУ ---
 async def backup_database_to_owner():
   if not OWNER_ID:
     return
@@ -60,25 +60,7 @@ async def backup_database_to_owner():
       print(f"Ошибка отправки бэкапа: {e}")
 
 
-async def restore_latest_database():
-  """Ищет самый свежий файл database.db в чате с владельцем и скачивает его при старте"""
-  if not OWNER_ID:
-    return
-  try:
-    messages = await bot.get_chat_history(chat_id=OWNER_ID, limit=30)
-    # Проходим по списку (в aiogram get_chat_history возвращает от новых к старым)
-    for msg in messages:
-      if msg.document and msg.document.file_name == "database.db":
-        file_info = await bot.get_file(msg.document.file_id)
-        await bot.download(file_info, destination=DB_FILE)
-        print("✅ Самый свежий бэкап успешно скачан из ЛС при старте!")
-        return
-    print("ℹ️ Предыдущих бэкапов в ЛС не найдено, создается новая база.")
-  except Exception as e:
-    print(f"Ошибка автоматического восстановления базы: {e}")
-
-
-# --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
+# --- ИНИЦИАЛИЗАЦИЯ И АВТОСОХРАНЕНИЕ СТАРТОВОГО ПРОГРЕССА ВЛАДЕЛЬЦА ---
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -107,6 +89,17 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     """)
+
+  # Страховка для владельца: если база очистилась на Render,
+  # но бот запускается заново, гарантируем твой аккаунт и баланс!
+  cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (OWNER_ID,))
+  if not cursor.fetchone():
+    cursor.execute(
+        "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
+        " 're1ax', 4600, 10, 'Скуф / Обычный чел')",
+        (OWNER_ID,),
+    )
+
   conn.commit()
   conn.close()
 
@@ -125,13 +118,15 @@ def get_user(user_id, username=None):
   clean_username = username.lower() if username else str(user_id)
 
   if not row:
+    # Дефолтные значения для новых игроков
+    default_money = 4600 if user_id == OWNER_ID else 1000
     cursor.execute(
         "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
-        " ?, 1000, 10, 'Скуф / Обычный чел')",
-        (user_id, clean_username),
+        " ?, ?, 10, 'Скуф / Обычный чел')",
+        (user_id, clean_username, default_money),
     )
     conn.commit()
-    money, defense, rank = 1000, 10, "Скуф / Обычный чел"
+    money, defense, rank = default_money, 10, "Скуф / Обычный чел"
   else:
     _, db_username, money, defense, rank = row
     if username and db_username != clean_username:
@@ -1048,12 +1043,9 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита с автовосстановлением из ЛС...")
+  print("Запуск бота бандита с защитой данных...")
 
-  # Пытаемся автоматически скачать последний бэкап базы данных из ЛС владельца
-  await restore_latest_database()
-
-  # Инициализируем таблицы базы данных при старте (если файла не было — создастся пустой)
+  # Инициализируем таблицы и гарантируем сохранение твоего профиля
   init_db()
 
   # Запускаем веб-сервер и фоновый самопинг
