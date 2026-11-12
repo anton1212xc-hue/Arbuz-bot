@@ -814,7 +814,7 @@ async def process_job_choice(message: Message):
     )
 
 
-# --- КАЗИНО ---
+# --- КАЗИНО (Шанс победы 30%, поражения 70%) ---
 
 
 @dp.message(F.text == "🎰 Казино")
@@ -875,7 +875,9 @@ async def casino_process_bet(message: Message):
 
   active_games.pop(user_id, None)
 
-  win = random.choice([True, False])
+  # Шанс победы 30%, поражения 70%
+  win = random.choices([True, False], weights=[30, 70], k=1)[0]
+
   if win:
     payout = bet_amount
     new_money = user["money"] + payout
