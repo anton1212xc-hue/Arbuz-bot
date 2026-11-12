@@ -55,12 +55,21 @@ def init_db():
             rank TEXT DEFAULT 'Скуф / Обычный чел'
         )
     """)
-  # Таблица бизнесов игроков (поддерживает мульти-покупку)
+  # Таблица бизнесов игроков
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS businesses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             biz_key TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    """)
+  # Таблица машин (Автосалон)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            car_key TEXT,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     """)
@@ -102,8 +111,11 @@ def get_user(user_id, username=None):
   cursor.execute(
       "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
   )
-  biz_rows = cursor.fetchall()
-  businesses = [b[0] for b in biz_rows]
+  businesses = [b[0] for b in cursor.fetchall()]
+
+  # Получаем машины пользователя
+  cursor.execute("SELECT car_key FROM cars WHERE user_id = ?", (user_id,))
+  cars = [c[0] for c in cursor.fetchall()]
 
   conn.close()
 
@@ -114,6 +126,7 @@ def get_user(user_id, username=None):
       "defense": defense,
       "rank": rank,
       "businesses": businesses,
+      "cars": cars,
   }
 
 
@@ -144,6 +157,16 @@ def add_user_business(user_id, biz_key):
   cursor.execute(
       "INSERT INTO businesses (user_id, biz_key) VALUES (?, ?)",
       (user_id, biz_key),
+  )
+  conn.commit()
+  conn.close()
+
+
+def add_user_car(user_id, car_key):
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO cars (user_id, car_key) VALUES (?, ?)", (user_id, car_key)
   )
   conn.commit()
   conn.close()
@@ -193,6 +216,13 @@ BUSINESSES = {
     },
 }
 
+CARS = {
+    "vaz": {"name": "🚗 ВАЗ 2107 (Пуд соли)", "cost": 15000},
+    "bmw_e34": {"name": "🏎 BMW E34 (Бумер)", "cost": 80000},
+    "gelik": {"name": "🚙 Mercedes G-Class (Гелик)", "cost": 350000},
+    "lamborghini": {"name": "🏎 Lamborghini Huracan", "cost": 1200000},
+}
+
 # --- КЛАВИАТУРЫ ---
 
 
@@ -201,7 +231,8 @@ def get_main_menu():
       keyboard=[
           [KeyboardButton(text="👤 Профиль"), KeyboardButton(text="🏆 Топ бандюков")],
           [KeyboardButton(text="💼 Работа"), KeyboardButton(text="🏢 Бизнесы")],
-          [KeyboardButton(text="🎰 Казино"), KeyboardButton(text="🛒 Шмотки")],
+          [KeyboardButton(text="🚗 Автосалон"), KeyboardButton(text="🎰 Казино")],
+          [KeyboardButton(text="🛒 Шмотки")],
       ],
       resize_keyboard=True,
   )
@@ -286,6 +317,20 @@ def get_business_menu():
   )
 
 
+def get_autosalon_menu():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text="🚗 ВАЗ 2107 ($15k)"), KeyboardButton(text="🏎 BMW E34 ($80k)")],
+          [
+              KeyboardButton(text="🚙 Гелик ($350k)"),
+              KeyboardButton(text="🏎 Lamborghini ($1.2M)"),
+          ],
+          [KeyboardButton(text="🚙 Мой гараж"), KeyboardButton(text="⬅️ Назад")],
+      ],
+      resize_keyboard=True,
+  )
+
+
 def get_casino_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
@@ -331,7 +376,7 @@ async def cmd_start(message: Message):
   user_name = message.from_user.first_name or "Бро"
   text = (
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "База данных SQLite подключена! Твои успехи надежно сохранены."
+      "Залетай в новый Автосалон, скупай тачки, бизнесы и поднимайся к успеху!"
   )
   await message.answer(text, reply_markup=get_main_menu())
 
@@ -346,12 +391,14 @@ async def back_to_main(message: Message):
 async def profile_handler(message: Message):
   user = get_user(message.from_user.id, message.from_user.username)
   biz_count = len(user["businesses"])
+  car_count = len(user["cars"])
   text = (
       f"📊 **Твой профиль:**\n\n"
       f"💰 Бахчи (бабосы): ${user['money']:,}\n"
       f"🧢 Ранг: {user['rank']}\n"
       f"🛡 Защита: {user['defense']}\n"
-      f"🏢 Всего бизнесов: {biz_count}\n"
+      f"🏢 Бизнесов: {biz_count}\n"
+      f"🚗 Машин в гараже: {car_count}\n"
       f"⚖️ Статус: На свободе"
   )
   await message.answer(text, reply_markup=get_main_menu())
@@ -481,6 +528,78 @@ async def admin_process_action(message: Message):
         f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
         reply_markup=get_admin_menu(),
     )
+
+
+# --- АВТОСАЛОН И ГАРАЖ ---
+
+
+@dp.message(F.text == "🚗 Автосалон")
+async def autosalon_handler(message: Message):
+  await message.answer(
+      "🚗 **Автосалон «У Палыча»:**\nЗацени тачки! Можно собрать целый гараж"
+      " крутых тачек для авторитета.",
+      reply_markup=get_autosalon_menu(),
+  )
+
+
+@dp.message(
+    F.text.in_([
+        "🚗 ВАЗ 2107 ($15k)",
+        "🏎 BMW E34 ($80k)",
+        "🚙 Гелик ($350k)",
+        "🏎 Lamborghini ($1.2M)",
+    ])
+)
+async def buy_car_handler(message: Message):
+  user = get_user(message.from_user.id, message.from_user.username)
+  mapping = {
+      "🚗 ВАЗ 2107 ($15k)": "vaz",
+      "🏎 BMW E34 ($80k)": "bmw_e34",
+      "🚙 Гелик ($350k)": "gelik",
+      "🏎 Lamborghini ($1.2M)": "lamborghini",
+  }
+  key = mapping.get(message.text)
+  car_info = CARS[key]
+
+  if user["money"] < car_info["cost"]:
+    await message.answer(
+        f"Не хватает бабосов! Нужно ${car_info['cost']:,}, а у тебя"
+        f" ${user['money']:,}.",
+        reply_markup=get_autosalon_menu(),
+    )
+    return
+
+  new_money = user["money"] - car_info["cost"]
+  update_user_money_and_stats(user["user_id"], money=new_money)
+  add_user_car(user["user_id"], key)
+
+  await message.answer(
+      f"🎉 Поздравляем с покупкой! Ты приобрел **{car_info['name']}**!\nБаланс:"
+      f" ${new_money:,}",
+      reply_markup=get_autosalon_menu(),
+  )
+
+
+@dp.message(F.text == "🚙 Мой гараж")
+async def show_my_garage(message: Message):
+  user = get_user(message.from_user.id, message.from_user.username)
+  if not user["cars"]:
+    await message.answer(
+        "Твой гараж пуст. Пора заехать в автосалон за тачкой!",
+        reply_markup=get_autosalon_menu(),
+    )
+    return
+
+  from collections import Counter
+
+  counts = Counter(user["cars"])
+
+  text = "🚙 **Твой гараж:**\n\n"
+  for key, count in counts.items():
+    c = CARS[key]
+    text += f"• {c['name']} (x{count})\n"
+
+  await message.answer(text, reply_markup=get_autosalon_menu())
 
 
 # --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
@@ -876,7 +995,7 @@ async def start_web_server():
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита с SQLite...")
+  print("Запуск бота бандита с Автосалоном и SQLite...")
 
   # Инициализируем таблицы базы данных при старте
   init_db()
