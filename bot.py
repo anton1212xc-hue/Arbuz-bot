@@ -12,6 +12,9 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
     KeyboardButton,
     LabeledPrice,
     Message,
@@ -230,11 +233,41 @@ BUSINESSES = {
 }
 
 CARS = {
-    "vaz": {"name": "🚗 ВАЗ 2107 (Пуд соли)", "cost": 15000},
-    "bmw_e34": {"name": "🏎 BMW E34 (Бумер)", "cost": 80000},
-    "gelik": {"name": "🚙 Mercedes G-Class (Гелик)", "cost": 350000},
-    "lamborghini": {"name": "🏎 Lamborghini Huracan", "cost": 1200000},
+    "vaz": {
+        "name": "🚗 ВАЗ 2107 (Пуд соли)",
+        "cost": 15000,
+        "speed": "160 км/ч",
+        "image": (
+
+            "https://share.google/XS2cilphg0z3HR44u"
+        ),
+    },
+    "bmw_e34": {
+        "name": "🏎 BMW E34 (Бумер)",
+        "cost": 80000,
+        "speed": "240 км/ч",
+        "image": (
+            "https://share.google/sC3I3BNgKeix8GYNy"
+        ),
+    },
+    "gelik": {
+        "name": "🚙 Mercedes G-Class (Гелик)",
+        "cost": 350000,
+        "speed": "220 км/ч",
+        "image": (
+            "https://share.google/JuM1JtSRLzDzimbIF"
+        ),
+    },
+    "lamborghini": {
+        "name": "🏎 Lamborghini Huracan",
+        "cost": 1200000,
+        "speed": "325 км/ч",
+        "image": (
+            "https://share.google/asZbe30cMDsZdsaJI"
+        ),
+    },
 }
+car_keys = list(CARS.keys())
 
 # --- КЛАВИАТУРЫ ---
 
@@ -330,17 +363,31 @@ def get_business_menu():
   )
 
 
-def get_autosalon_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="🚗 ВАЗ 2107 ($15k)"), KeyboardButton(text="🏎 BMW E34 ($80k)")],
+def get_autosalon_inline(index: int):
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
           [
-              KeyboardButton(text="🚙 Гелик ($350k)"),
-              KeyboardButton(text="🏎 Lamborghini ($1.2M)"),
+              InlineKeyboardButton(
+                  text="⬅️ Назад", callback_data=f"car_prev_{index}"
+              ),
+              InlineKeyboardButton(
+                  text="➡️ Вперед", callback_data=f"car_next_{index}"
+              ),
           ],
-          [KeyboardButton(text="🚙 Мой гараж"), KeyboardButton(text="⬅️ Назад")],
-      ],
-      resize_keyboard=True,
+          [
+              InlineKeyboardButton(
+                  text="🛒 Купить эту тачку", callback_data=f"car_buy_{index}"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="🚙 Мой гараж", callback_data="car_garage"
+              ),
+              InlineKeyboardButton(
+                  text="❌ Выйти в меню", callback_data="car_exit"
+              ),
+          ],
+      ]
   )
 
 
@@ -456,7 +503,6 @@ async def top_players_handler(message: Message):
       safe_money = money if money is not None else 0
       text += f"{medals} {name_display} — Баланс: ${safe_money:,}\n"
 
-    # Явно указываем parse_mode=None, чтобы глобальные настройки бота не ломали текст
     await message.answer(
         text, parse_mode=None, reply_markup=get_main_menu()
     )
@@ -467,7 +513,6 @@ async def top_players_handler(message: Message):
         parse_mode=None,
         reply_markup=get_main_menu(),
     )
-
 
 
 # --- АДМИН-ПАНЕЛЬ И РАССЫЛКА ---
@@ -633,76 +678,111 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- АВТОСАЛОН И ГАРАЖ ---
+# --- ИНТЕРАКТИВНЫЙ АВТОСАЛОН С КАРТИНКАМИ И ЛИСТАНИЕМ ---
+
+
+async def show_car_page(message_or_callback, index=0, edit=True):
+  global car_keys
+  index = index % len(car_keys)
+  key = car_keys[index]
+  car = CARS[key]
+
+  text = (
+      f"🚗 **Автосалон «У Палыча»**\n\n"
+      f"🚙 Модель: **{car['name']}**\n"
+      f"⚡️ Макс. скорость: `{car['speed']}`\n"
+      f"💰 Цена: **${car['cost']:,}**\n\n"
+      f"📄 Чёткая тачка, бери не пожалеешь!"
+  )
+
+  reply_markup = get_autosalon_inline(index)
+
+  if edit and hasattr(message_or_callback, "message"):
+    call = message_or_callback
+    try:
+      await call.message.edit_media(
+          media=InputMediaPhoto(
+              media=car["image"], caption=text, parse_mode="Markdown"
+          ),
+          reply_markup=reply_markup,
+      )
+    except Exception:
+      await call.message.edit_text(
+          text, parse_mode="Markdown", reply_markup=reply_markup
+      )
+    await call.answer()
+  else:
+    message = message_or_callback
+    await message.answer_photo(
+        photo=car["image"],
+        caption=text,
+        parse_mode="Markdown",
+        reply_markup=reply_markup,
+    )
 
 
 @dp.message(F.text == "🚗 Автосалон")
 async def autosalon_handler(message: Message):
-  await message.answer(
-      "🚗 **Автосалон «У Палыча»:**\nЗацени тачки! Можно собрать целый гараж"
-      " крутых тачек для авторитета.",
-      reply_markup=get_autosalon_menu(),
-  )
+  await show_car_page(message, index=0, edit=False)
 
 
-@dp.message(
-    F.text.in_([
-        "🚗 ВАЗ 2107 ($15k)",
-        "🏎 BMW E34 ($80k)",
-        "🚙 Гелик ($350k)",
-        "🏎 Lamborghini ($1.2M)",
-    ])
-)
-async def buy_car_handler(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  mapping = {
-      "🚗 ВАЗ 2107 ($15k)": "vaz",
-      "🏎 BMW E34 ($80k)": "bmw_e34",
-      "🚙 Гелик ($350k)": "gelik",
-      "🏎 Lamborghini ($1.2M)": "lamborghini",
-  }
-  key = mapping.get(message.text)
-  car_info = CARS[key]
+@dp.callback_query(F.data.startswith("car_"))
+async def car_callback_handler(callback):
+  data = callback.data
+  global car_keys
 
-  if user["money"] < car_info["cost"]:
-    await message.answer(
-        f"Не хватает бабосов! Нужно ${car_info['cost']:,}, а у тебя"
-        f" ${user['money']:,}.",
-        reply_markup=get_autosalon_menu(),
+  if data == "car_exit":
+    await callback.message.delete()
+    await callback.message.answer(
+        "Главное меню, бро:", reply_markup=get_main_menu()
     )
+    await callback.answer()
     return
 
-  new_money = user["money"] - car_info["cost"]
-  update_user_money_and_stats(user["user_id"], money=new_money)
-  await add_user_car_and_backup(user["user_id"], key)
+  if data == "car_garage":
+    user = get_user(callback.from_user.id, callback.from_user.username)
+    if not user["cars"]:
+      await callback.answer("Твой гараж пуст!", show_alert=True)
+      return
 
-  await message.answer(
-      f"🎉 Поздравляем с покупкой! Ты приобрел **{car_info['name']}**!\nБаланс:"
-      f" ${new_money:,}",
-      reply_markup=get_autosalon_menu(),
-  )
+    from collections import Counter
 
+    counts = Counter(user["cars"])
+    garage_text = "🚙 **Твой гараж:**\n\n"
+    for key, count in counts.items():
+      c = CARS.get(key, {"name": key})
+      garage_text += f"• {c['name']} (x{count})\n"
 
-@dp.message(F.text == "🚙 Мой гараж")
-async def show_my_garage(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  if not user["cars"]:
-    await message.answer(
-        "Твой гараж пуст. Пора заехать в автосалон за тачкой!",
-        reply_markup=get_autosalon_menu(),
-    )
+    await callback.answer(garage_text, show_alert=True)
     return
 
-  from collections import Counter
+  parts = data.split("_")
+  action = parts[1]
+  index = int(parts[2])
 
-  counts = Counter(user["cars"])
+  if action == "prev":
+    await show_car_page(callback, index - 1, edit=True)
+  elif action == "next":
+    await show_car_page(callback, index + 1, edit=True)
+  elif action == "buy":
+    key = car_keys[index]
+    car = CARS[key]
+    user = get_user(callback.from_user.id, callback.from_user.username)
 
-  text = "🚙 **Твой гараж:**\n\n"
-  for key, count in counts.items():
-    c = CARS[key]
-    text += f"• {c['name']} (x{count})\n"
+    if user["money"] < car["cost"]:
+      await callback.answer(
+          f"Не хватает бабосов! Нужно ${car['cost']:,}, а у тебя"
+          f" ${user['money']:,}.",
+          show_alert=True,
+      )
+      return
 
-  await message.answer(text, reply_markup=get_autosalon_menu())
+    new_money = user["money"] - car["cost"]
+    update_user_money_and_stats(user["user_id"], money=new_money)
+    await add_user_car_and_backup(user["user_id"], key)
+
+    await callback.answer(f"🎉 Успешно куплено: {car['name']}!", show_alert=True)
+    await show_car_page(callback, index, edit=True)
 
 
 # --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
