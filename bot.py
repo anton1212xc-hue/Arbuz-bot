@@ -19,8 +19,8 @@ from aiogram.types import (
 
 # Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
-OWNER_ID = 1780243435  # Укажите ваш Telegram ID
-ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели (можешь изменить)
+OWNER_ID = 1780243435  # Твой личный ID
+ADMIN_PASSWORD = "gver1212"  # Твой пароль для админ-панели
 
 # Настройка кастомного сервера для ShuzaGram в aiogram 3.x
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
@@ -34,20 +34,25 @@ bot = Bot(
 dp = Dispatcher(storage=MemoryStorage())
 
 # Базы данных
-users_db = {}
+users_db = {}  # {user_id: user_data}
+username_to_id = {}  # Для поиска по @username
 active_games = {}  # {user_id: {"type": ..., "data": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
-def get_user(user_id):
+def get_user(user_id, username=None):
   if user_id not in users_db:
     users_db[user_id] = {
         "user_id": user_id,
+        "username": username.lower() if username else str(user_id),
         "money": 1000,
         "defense": 10,
         "rank": "Скуф / Обычный чел",
-        "businesses": [],
+        "businesses": [],  # Список купленных бизнесов (можно дублировать)
     }
+  if username:
+    users_db[user_id]["username"] = username.lower()
+    username_to_id[username.lower()] = user_id
   return users_db[user_id]
 
 
@@ -92,7 +97,6 @@ def get_work_menu():
   )
 
 
-# Тематические клавиатуры для мини-игр на работах
 def get_ref_keyboard():
   return ReplyKeyboardMarkup(
       keyboard=[
@@ -190,7 +194,7 @@ def get_market_menu():
 def get_admin_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
-          [KeyboardButton(text="➕ Накинуть $100,000"), KeyboardButton(text="🛡 Сделать макс. защиту")],
+          [KeyboardButton(text="💸 Выдать бабло"), KeyboardButton(text="🏢 Выдать бизнес")],
           [KeyboardButton(text="🚪 Выйти из админки")],
       ],
       resize_keyboard=True,
@@ -202,12 +206,11 @@ def get_admin_menu():
 
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
-  get_user(message.from_user.id)
+  get_user(message.from_user.id, message.from_user.username)
   user_name = message.from_user.first_name or "Бро"
   text = (
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "Здесь тебя ждет жесткая жизнь: уникальные мини-игры на работах,"
-      " продвинутое казино с выбором ставок, бизнесы и авторитет!"
+      "Скупай сколько угодно одинаковых бизнесов, крути мини-игры и залетай в топ!"
   )
   await message.answer(text, reply_markup=get_main_menu())
 
@@ -220,14 +223,14 @@ async def back_to_main(message: Message):
 
 @dp.message(F.text == "👤 Профиль")
 async def profile_handler(message: Message):
-  user = get_user(message.from_user.id)
+  user = get_user(message.from_user.id, message.from_user.username)
   biz_count = len(user["businesses"])
   text = (
       f"📊 **Твой профиль:**\n\n"
       f"💰 Бахчи (бабосы): ${user['money']:,}\n"
       f"🧢 Ранг: {user['rank']}\n"
       f"🛡 Защита: {user['defense']}\n"
-      f"🏢 Куплено бизнесов: {biz_count}\n"
+      f"🏢 Всего бизнесов: {biz_count}\n"
       f"⚖️ Статус: На свободе"
   )
   await message.answer(text, reply_markup=get_main_menu())
@@ -241,11 +244,12 @@ async def top_players_handler(message: Message):
   text = "🏆 **Топ-10 авторитетов по бабосам:**\n\n"
   for i, u in enumerate(sorted_users[:10], 1):
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-    text += f"{medals} ID {u['user_id']} — 💰 **${u['money']:,}**\n"
+    identifier = f"@{u['username']}" if u["username"] else f"ID {u['user_id']}"
+    text += f"{medals} {identifier} — 💰 **${u['money']:,}**\n"
   await message.answer(text, reply_markup=get_main_menu())
 
 
-# --- АДМИН-ПАНЕЛЬ ---
+# --- АДМИН-ПАНЕЛЬ С ВЫДАЧЕЙ ДЕНЕГ И БИЗНЕСОВ ПО ЮЗЕРНЕЙМУ ---
 
 
 @dp.message(F.text.startswith("/admin"))
@@ -253,7 +257,7 @@ async def admin_login_command(message: Message):
   parts = message.text.split(maxsplit=1)
   if len(parts) < 2:
     await message.answer(
-        "Введи пароль вместе с командой, например: `/admin твой_пароль`",
+        "Введи пароль вместе с командой, например: `/admin gver1212`",
         parse_mode="Markdown",
     )
     return
@@ -262,8 +266,7 @@ async def admin_login_command(message: Message):
   if password == ADMIN_PASSWORD:
     admin_session.add(message.from_user.id)
     await message.answer(
-        "🔓 Пароль принят! Добро пожаловать в админ-панель.",
-        reply_markup=get_admin_menu(),
+        "🔓 Админ-панель активна!", reply_markup=get_admin_menu()
     )
   else:
     await message.answer("❌ Неверный пароль!")
@@ -277,29 +280,93 @@ async def admin_logout(message: Message):
   )
 
 
-@dp.message(F.text == "➕ Накинуть $100,000")
-async def admin_add_money(message: Message):
+@dp.message(F.text == "💸 Выдать бабло")
+async def admin_prompt_money(message: Message):
   if message.from_user.id not in admin_session:
     return
-  user = get_user(message.from_user.id)
-  user["money"] += 100000
+  active_games[message.from_user.id] = {"admin_action": "give_money"}
   await message.answer(
-      f"💵 Админ-бонус зачислен! Баланс: ${user['money']:,}",
-      reply_markup=get_admin_menu(),
+      "Введите данные в формате:\n`@username сумма` (или `ID сумма`)\nПример:"
+      " `@nikiteeess 500000`",
+      parse_mode="Markdown",
   )
 
 
-@dp.message(F.text == "🛡 Сделать макс. защиту")
-async def admin_max_defense(message: Message):
+@dp.message(F.text == "🏢 Выдать бизнес")
+async def admin_prompt_business(message: Message):
   if message.from_user.id not in admin_session:
     return
-  user = get_user(message.from_user.id)
-  user["defense"] = 999
-  user["rank"] = "Бессмертный Босс 👑"
+  active_games[message.from_user.id] = {"admin_action": "give_biz"}
   await message.answer(
-      "🛡 Защита выкручена на максимум (999)! Ранг изменен.",
-      reply_markup=get_admin_menu(),
+      "Введите данные в формате:\n`@username ключ_бизнеса`\n\nДоступные ключи"
+      " бизнесов:\n• `shaurma`\n• `carwash`\n• `club`\n• `casino_biz`\n•"
+      " `vip_cartel`\nПример: `@nikiteeess vip_cartel`",
+      parse_mode="Markdown",
   )
+
+
+@dp.message(
+    lambda msg: msg.from_user.id in admin_session
+    and msg.from_user.id in active_games
+    and "admin_action" in active_games[msg.from_user.id]
+)
+async def admin_process_action(message: Message):
+  user_id = message.from_user.id
+  action_data = active_games.pop(user_id)
+  action = action_data["admin_action"]
+
+  parts = message.text.strip().split()
+  if len(parts) < 2:
+    await message.answer(
+        "Ошибка формата! Попробуйте снова через кнопки админки."
+    )
+    return
+
+  target_raw = parts[0].lstrip("@").lower()
+  arg = parts[1]
+
+  target_user = None
+  if target_raw.isdigit():
+    t_id = int(target_raw)
+    if t_id in users_db:
+      target_user = users_db[t_id]
+  else:
+    if target_raw in username_to_id:
+      target_user = users_db[username_to_id[target_raw]]
+
+  if not target_user:
+    await message.answer(
+        f"❌ Пользователь `{target_raw}` не найден в базе данных (он должен"
+        " хотя бы раз нажать /start в боте).",
+        parse_mode="Markdown",
+    )
+    return
+
+  if action == "give_money":
+    if not arg.isdigit():
+      await message.answer("❌ Сумма должна быть числом!")
+      return
+    amount = int(arg)
+    target_user["money"] += amount
+    await message.answer(
+        f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
+        f" Новый баланс: ${target_user['money']:,}",
+        reply_markup=get_admin_menu(),
+    )
+
+  elif action == "give_biz":
+    if arg not in BUSINESSES:
+      await message.answer(
+          "❌ Неверный ключ бизнеса! Используйте: shaurma, carwash, club,"
+          " casino_biz, vip_cartel"
+      )
+      return
+    target_user["businesses"].append(arg)
+    biz_name = BUSINESSES[arg]["name"]
+    await message.answer(
+        f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
+        reply_markup=get_admin_menu(),
+    )
 
 
 # --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
@@ -308,8 +375,7 @@ async def admin_max_defense(message: Message):
 @dp.message(F.text == "💼 Работа")
 async def work_handler(message: Message):
   await message.answer(
-      "мяумс, выбери тему. В каждой работе своя уникальная мини-игра, где можно"
-      " подняться или остаться ни с чем:",
+      "мяумс, выбери тему. В каждой работе своя уникальная мини-игра:",
       reply_markup=get_work_menu(),
   )
 
@@ -356,7 +422,6 @@ async def cancel_job(message: Message):
   await message.answer("Соскочил с темы.", reply_markup=get_work_menu())
 
 
-# Обработка выборов в мини-играх
 @dp.message(
     F.text.in_([
         "💬 Спам в ЛС",
@@ -375,7 +440,7 @@ async def cancel_job(message: Message):
 )
 async def process_job_choice(message: Message):
   user_id = message.from_user.id
-  if user_id not in active_games:
+  if user_id not in active_games or "job" not in active_games[user_id]:
     await message.answer(
         "Сначала выбери работу в меню!", reply_markup=get_work_menu()
     )
@@ -383,10 +448,9 @@ async def process_job_choice(message: Message):
 
   game_data = active_games.pop(user_id)
   job_type = game_data["job"]
-  user = get_user(user_id)
+  user = get_user(user_id, message.from_user.username)
   choice = message.text
 
-  # Логика для каждой работы: только 1 вариант из 3 приносит победу
   win = False
   prize = 0
 
@@ -410,26 +474,24 @@ async def process_job_choice(message: Message):
   if win:
     user["money"] += prize
     await message.answer(
-        f"🎯 Четкий расчет! Твой выбор ({choice}) оказался верным.\n"
-        f"Ты успешно справился с темой и поднял **+${prize:,}**! 💸\nБаланс:"
-        f" ${user['money']:,}",
+        f"🎯 Четкий расчет! Выбор ({choice}) верный.\nУспех! Получено:"
+        f" **+${prize:,}**! 💸\nБаланс: ${user['money']:,}",
         reply_markup=get_work_menu(),
     )
   else:
     await message.answer(
-        f"💥 Мимо! Выбор ({choice}) прогорел. Менты / конкуренты тебя приняли,"
-        f" ушел ни с чем.",
+        f"💥 Мимо! Выбор ({choice}) прогорел. Ушел ни с чем.",
         reply_markup=get_work_menu(),
     )
 
 
-# --- ПРОДВИНУТОЕ КАЗИНО (ВЫБОР СТАВКИ И ИГРЫ) ---
+# --- ПРОДВИНУТОЕ КАЗИНО (ВЫБОР СТАВКИ) ---
 
 
 @dp.message(F.text == "🎰 Казино")
 async def casino_handler(message: Message):
   await message.answer(
-      "🎲 Добро пожаловать в кинцо «как остаться без трусов»!\nВыбирай игру:",
+      "🎲 Добро пожаловать в казино! Выбирай игру:",
       reply_markup=get_casino_menu(),
   )
 
@@ -439,8 +501,7 @@ async def casino_select_game(message: Message):
   g_type = "dice" if "кости" in message.text else "cards"
   active_games[message.from_user.id] = {"casino": g_type}
   await message.answer(
-      "💰 Напиши сумму, которую хочешь поставить (например: `500` или `5000`),"
-      " или нажми «Назад»:",
+      "💰 Напиши сумму ставки числом (например: `500`):",
       parse_mode="Markdown",
       reply_markup=ReplyKeyboardMarkup(
           keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True
@@ -448,14 +509,16 @@ async def casino_select_game(message: Message):
   )
 
 
-# Обработка ставки в казино в текстовом виде
 @dp.message(
-    F.text.regexp(r"^\d+$").filter(lambda msg: msg.from_user.id in active_games)
+    F.text.regexp(r"^\d+$").filter(
+        lambda msg: msg.from_user.id in active_games
+        and "casino" in active_games[msg.from_user.id]
+    )
 )
 async def casino_process_bet(message: Message):
   user_id = message.from_user.id
   bet_amount = int(message.text)
-  user = get_user(user_id)
+  user = get_user(user_id, message.from_user.username)
 
   if bet_amount <= 0:
     await message.answer("Ставка должна быть больше нуля, бро.")
@@ -469,36 +532,34 @@ async def casino_process_bet(message: Message):
     active_games.pop(user_id, None)
     return
 
-  game_info = active_games.pop(user_id)
+  active_games.pop(user_id, None)
   user["money"] -= bet_amount
 
-  # Рандом исхода казино (шанс 50 на 50)
   win = random.choice([True, False])
-
   if win:
     payout = bet_amount * 2
     user["money"] += payout
     await message.answer(
-        f"🎲 Удача на твоей стороне! Ты поднял куш **+${payout:,}**! 💰\nБаланс:"
+        f"🎲 Удача на твоей стороне! Выиграл **+${payout:,}**! 💰\nБаланс:"
         f" ${user['money']:,}",
         reply_markup=get_casino_menu(),
     )
   else:
     await message.answer(
-        f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела в казино...\nБаланс:"
+        f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела...\nБаланс:"
         f" ${user['money']:,}",
         reply_markup=get_casino_menu(),
     )
 
 
-# --- БИЗНЕСЫ ---
+# --- ПОКУПКА БИЗНЕСОВ (МУЛЬТИ-ПОКУПКА) ---
 
 
 @dp.message(F.text == "🏢 Бизнесы")
 async def business_menu_handler(message: Message):
   await message.answer(
-      "🏢 **Биржа бизнесов:**\nДоход каждого бизнеса равен его цене с урезанным"
-      " нулем!\n👑 Картель за 250 Звезд приносит **500,000 в час**!",
+      "🏢 **Биржа бизнесов:**\nТы можешь покупать **несколько одинаковых"
+      " бизнесов**! Каждый новый приносит пассивный доход.",
       reply_markup=get_business_menu(),
   )
 
@@ -512,7 +573,7 @@ async def business_menu_handler(message: Message):
     ])
 )
 async def buy_business_in_cash(message: Message):
-  user = get_user(message.from_user.id)
+  user = get_user(message.from_user.id, message.from_user.username)
   mapping = {
       "🌭 Шаурма ($5k)": "shaurma",
       "🚗 Автомойка ($25k)": "carwash",
@@ -521,13 +582,6 @@ async def buy_business_in_cash(message: Message):
   }
   key = mapping.get(message.text)
   biz_info = BUSINESSES[key]
-
-  if key in user["businesses"]:
-    await message.answer(
-        f"У тебя уже есть этот бизнес: **{biz_info['name']}**!",
-        reply_markup=get_business_menu(),
-    )
-    return
 
   if user["money"] < biz_info["cost"]:
     await message.answer(
@@ -540,7 +594,7 @@ async def buy_business_in_cash(message: Message):
   user["money"] -= biz_info["cost"]
   user["businesses"].append(key)
   await message.answer(
-      f"🎉 Куплен **{biz_info['name']}** за ${biz_info['cost']:,}!\nПрибыль:"
+      f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
       f" ${biz_info['income']:,}/час.\nБаланс: ${user['money']:,}",
       reply_markup=get_business_menu(),
   )
@@ -548,19 +602,10 @@ async def buy_business_in_cash(message: Message):
 
 @dp.message(F.text == "👑 Картель (250 ⭐)")
 async def buy_cartel_stars(message: Message):
-  user = get_user(message.from_user.id)
-  if "vip_cartel" in user["businesses"]:
-    await message.answer(
-        "У тебя уже оформлен Картель!", reply_markup=get_business_menu()
-    )
-    return
-
   prices = [LabeledPrice(label="👑 Картель (500k/час)", amount=250)]
   await message.answer_invoice(
       title="Покупка Картеля",
-      description=(
-          "Элитный бизнес за звезды! Приносит 500,000 бабосов в час."
-      ),
+      description="Элитный бизнес за звезды! Приносит 500,000 в час.",
       payload="buy_vip_cartel",
       currency="XTR",
       prices=prices,
@@ -574,29 +619,29 @@ async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
 
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: Message):
-  user = get_user(message.from_user.id)
-  if "vip_cartel" not in user["businesses"]:
-    user["businesses"].append("vip_cartel")
+  user = get_user(message.from_user.id, message.from_user.username)
+  user["businesses"].append("vip_cartel")
 
   if OWNER_ID and message.from_user.id != OWNER_ID:
     try:
       await bot.send_message(
           OWNER_ID,
-          f"👑 Внимание! Пользователь @{message.from_user.username or message.from_user.id}"
+          f"👑 Внимание! @{message.from_user.username or message.from_user.id}"
           " купил Картель за 250 Звезд!",
       )
     except Exception:
       pass
 
   await message.answer(
-      "👑 Оплата прошла успешно! **Картель** твой, доход 500k/час активирован! 🔥",
+      "👑 Оплата прошла успешно! Еще один **Картель** добавлен в твою"
+      " империю! 🔥",
       reply_markup=get_main_menu(),
   )
 
 
 @dp.message(F.text == "💼 Мои бизнесы")
 async def show_my_businesses(message: Message):
-  user = get_user(message.from_user.id)
+  user = get_user(message.from_user.id, message.from_user.username)
   if not user["businesses"]:
     await message.answer(
         "У тебя пока пусто. Пора замутить бизнес!",
@@ -604,12 +649,17 @@ async def show_my_businesses(message: Message):
     )
     return
 
+  from collections import Counter
+
+  counts = Counter(user["businesses"])
+
   total_income = 0
   text = "🏢 **Твои владения:**\n\n"
-  for key in user["businesses"]:
+  for key, count in counts.items():
     b = BUSINESSES[key]
-    total_income += b["income"]
-    text += f"• {b['name']} — 💵 **${b['income']:,}/час**\n"
+    inc = b["income"] * count
+    total_income += inc
+    text += f"• {b['name']} (x{count}) — 💵 **${inc:,}/час**\n"
 
   text += f"\n📊 **Общий пассивный доход в час:** ${total_income:,}"
   await message.answer(text, reply_markup=get_business_menu())
@@ -628,7 +678,7 @@ async def market_handler(message: Message):
 
 @dp.message(F.text.in_(["👕 Шмотка VETEMENTS ($500)", "🛡 Прокачать защиту ($300)"]))
 async def market_buy_handler(message: Message):
-  user = get_user(message.from_user.id)
+  user = get_user(message.from_user.id, message.from_user.username)
   is_vetements = "VETEMENTS" in message.text
   cost = 500 if is_vetements else 300
 
