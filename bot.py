@@ -200,6 +200,16 @@ def get_top_users(limit=10):
   return rows
 
 
+def get_all_user_ids():
+  """Получает список всех ID пользователей для рассылки"""
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("SELECT user_id FROM users")
+  rows = cursor.fetchall()
+  conn.close()
+  return [row[0] for row in rows]
+
+
 def get_user_by_username_or_id(target_raw):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -377,6 +387,7 @@ def get_admin_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
           [KeyboardButton(text="💸 Выдать бабло"), KeyboardButton(text="🏢 Выдать бизнес")],
+          [KeyboardButton(text="📢 Сделать рассылку")],
           [KeyboardButton(text="🚪 Выйти из админки")],
       ],
       resize_keyboard=True,
@@ -444,7 +455,7 @@ async def top_players_handler(message: Message):
   await message.answer(text, reply_markup=get_main_menu())
 
 
-# --- АДМИН-ПАНЕЛЬ ---
+# --- АДМИН-ПАНЕЛЬ И РАССЫЛКА ---
 
 
 @dp.message(F.text.startswith("/admin"))
@@ -500,6 +511,20 @@ async def admin_prompt_business(message: Message):
   )
 
 
+@dp.message(F.text == "📢 Сделать рассылку")
+async def admin_prompt_broadcast(message: Message):
+  if message.from_user.id not in admin_session:
+    return
+  active_games[message.from_user.id] = {"admin_action": "broadcast"}
+  await message.answer(
+      "📢 Отправь текст (или сообщение с картинкой/форматированием), которое"
+      " нужно разослать **всем участникам** бота:",
+      reply_markup=ReplyKeyboardMarkup(
+          keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True
+      ),
+  )
+
+
 @dp.message(
     lambda msg: msg.from_user.id in admin_session
     and msg.from_user.id in active_games
@@ -507,8 +532,41 @@ async def admin_prompt_business(message: Message):
 )
 async def admin_process_action(message: Message):
   user_id = message.from_user.id
+
+  if message.text == "⬅️ Назад":
+    active_games.pop(user_id, None)
+    await message.answer(
+        "Рассылка отменена.", reply_markup=get_admin_menu()
+    )
+    return
+
   action_data = active_games.pop(user_id)
   action = action_data["admin_action"]
+
+  if action == "broadcast":
+    users = get_all_user_ids()
+    success_count = 0
+    fail_count = 0
+
+    status_msg = await message.answer(
+        f"⏳ Начинаю рассылку для {len(users)} участников..."
+    )
+
+    for uid in users:
+      try:
+        await message.send_copy(chat_id=uid)
+        success_count += 1
+        await asyncio.sleep(0.05)
+      except Exception:
+        fail_count += 1
+
+    await status_msg.edit_text(
+        f"📢 **Рассылка завершена!**\n\n"
+        f"✅ Успешно доставлено: {success_count}\n"
+        f"❌ Не удалось доставить: {fail_count}",
+        reply_markup=get_admin_menu(),
+    )
+    return
 
   parts = message.text.strip().split()
   if len(parts) < 2:
@@ -787,13 +845,11 @@ async def casino_select_game(message: Message):
 async def casino_process_bet(message: Message):
   user_id = message.from_user.id
 
-  # Если пользователь нажал «Назад»
   if message.text == "⬅️ Назад":
     active_games.pop(user_id, None)
     await message.answer("Вышел из казино.", reply_markup=get_casino_menu())
     return
 
-  # Проверяем, что введено именно число
   if not message.text.isdigit():
     await message.answer(
         "⚠️ Эу, бро! Ставка должна быть обычной цифрой (например: `500`)."
