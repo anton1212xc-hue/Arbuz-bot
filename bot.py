@@ -190,20 +190,22 @@ async def add_user_car_and_backup(user_id, car_key):
   await backup_database_to_owner()
 
 
-def remove_user_car_and_backup(user_id, car_key):
-  """Удаляет одну конкретную тачку из гаража игрока"""
+def get_user_cars_detailed(user_id):
+  """Возвращает список всех машин из гаража игрока вместе с их уникальными ID в базе: [(db_id, car_key), ...]"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
-  # Находим id записи этой тачки у пользователя
-  cursor.execute(
-      "SELECT id FROM cars WHERE user_id = ? AND car_key = ? LIMIT 1",
-      (user_id, car_key),
-  )
-  row = cursor.fetchone()
-  if row:
-    car_db_id = row[0]
-    cursor.execute("DELETE FROM cars WHERE id = ?", (car_db_id,))
-    conn.commit()
+  cursor.execute("SELECT id, car_key FROM cars WHERE user_id = ?", (user_id,))
+  rows = cursor.fetchall()
+  conn.close()
+  return rows
+
+
+def remove_car_by_db_id(db_id):
+  """Удаляет конкретную машину из базы по её ID записи в слоте"""
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("DELETE FROM cars WHERE id = ?", (db_id,))
+  conn.commit()
   conn.close()
 
 
@@ -390,7 +392,7 @@ def get_autosalon_inline(index: int):
   )
 
 
-def get_garage_inline(index: int):
+def get_garage_inline(index: int, db_id: int):
   return InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -403,7 +405,8 @@ def get_garage_inline(index: int):
           ],
           [
               InlineKeyboardButton(
-                  text="💸 Продать за полцены", callback_data=f"gar_sell_{index}"
+                  text="💸 Продать за полцены",
+                  callback_data=f"gar_sell_{db_id}_{index}",
               )
           ],
           [
@@ -743,47 +746,36 @@ async def autosalon_handler(message: Message):
   await show_car_page(message, index=0, edit=False)
 
 
-# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ ГАРАЖ ---
+# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ ГАРАЖ ПО СЛОТАМ ---
 
 
 async def show_garage_page(callback, index=0):
   user_id = callback.from_user.id
-  user = get_user(user_id, callback.from_user.username)
+  cars_list = get_user_cars_detailed(user_id)
 
-  if not user["cars"]:
+  if not cars_list:
     await callback.answer(
         "Твой гараж пуст! Сначала купи тачку в автосалоне.", show_alert=True
     )
     return
 
-  global car_keys
-  # Фильтруем только те ключи машин, которые есть у игрока
-  user_cars_unique = [k for k in car_keys if k in user["cars"]]
-
-  if not user_cars_unique:
-    await callback.answer("У тебя нет машин в гараже!", show_alert=True)
-    return
-
-  index = index % len(user_cars_unique)
-  key = user_cars_unique[index]
-  car = CARS[key]
-
-  from collections import Counter
-
-  counts = Counter(user["cars"])
-  count = counts[key]
+  index = index % len(cars_list)
+  db_id, key = cars_list[index]
+  car = CARS.get(key, {"name": key, "speed": "???", "cost": 0})
   sell_price = int(car["cost"] / 2)
+  slot_number = index + 1
+  total_slots = len(cars_list)
 
   text = (
       f"🚙 **Твой гараж («У Палыча»)**\n\n"
+      f"🅿️ **Слот №{slot_number} из {total_slots}**\n"
       f"🚗 Модель: **{car['name']}**\n"
-      f"📦 Количество в гараже: **{count} шт.**\n"
       f"⚡️ Макс. скорость: `{car['speed']}`\n"
-      f"💵 Цена продажи (за 1 шт.): **${sell_price:,}** (50% от гос. цены)\n\n"
-      f"🔄 Листай свои тачки кнопками ниже:"
+      f"💵 Цена продажи этого слота: **${sell_price:,}** (50% от гос. цены)\n\n"
+      f"🔄 Листай слоты кнопками ниже:"
   )
 
-  reply_markup = get_garage_inline(index)
+  reply_markup = get_garage_inline(index, db_id)
 
   try:
     await callback.message.edit_text(
@@ -847,13 +839,11 @@ async def autosalon_callback_handler(callback):
 @dp.callback_query(F.data.startswith("gar_"))
 async def garage_callback_handler(callback):
   data = callback.data
-  global car_keys
   user_id = callback.from_user.id
-  user = get_user(user_id, callback.from_user.username)
+  parts = data.split("_")
+  action = parts[1]
 
-  user_cars_unique = [k for k in car_keys if k in user["cars"]]
-
-  if data == "gar_exit":
+  if action == "exit":
     await callback.message.delete()
     await callback.message.answer(
         "Главное меню, бро:", reply_markup=get_main_menu()
@@ -861,40 +851,64 @@ async def garage_callback_handler(callback):
     await callback.answer()
     return
 
-  if data == "gar_to_shop":
+  if action == "to":  # gar_to_shop
     await show_car_page(callback, index=0, edit=True)
     return
 
-  parts = data.split("_")
-  action = parts[1]
-  index = int(parts[2])
-
-  if not user_cars_unique:
-    await callback.answer("В твоем гараже больше нет машин!", show_alert=True)
-    await show_car_page(callback, index=0, edit=True)
-    return
+  index = int(parts[3])
 
   if action == "prev":
     await show_garage_page(callback, index - 1)
   elif action == "next":
     await show_garage_page(callback, index + 1)
-  elif action == "sell":
-    index = index % len(user_cars_unique)
-    key = user_cars_unique[index]
+  elif action == "sell":  # gar_sell_{db_id}_{index}
+    db_id = int(parts[2])
+    cars_list = get_user_cars_detailed(user_id)
+
+    # Ищем тачку по уникальному db_id в слоте
+    target_car = next((item for item in cars_list if item[0] == db_id), None)
+    if not target_car:
+      await callback.answer("Этот слот уже пуст!", show_alert=True)
+      await show_garage_page(callback, index=0)
+      return
+
+    _, key = target_car
     car = CARS[key]
     sell_price = int(car["cost"] / 2)
 
-    # Продаем одну единицу машины
-    remove_user_car_and_backup(user_id, key)
+    # Удаляем конкретный слот и начисляем деньги
+    remove_car_by_db_id(db_id)
+    user = get_user(user_id)
     new_money = user["money"] + sell_price
     update_user_money_and_stats(user_id, money=new_money)
     await backup_database_to_owner()
 
     await callback.answer(
-        f"💰 Ты успешно продал {car['name']} за ${sell_price:,}!",
-        show_alert=True,
+        f"💰 Слот продан! Выручено: ${sell_price:,}!", show_alert=True
     )
-    await show_garage_page(callback, index)
+
+    # Обновляем гараж (переходим к предыдущему слоту или закрываем, если пусто)
+    updated_list = get_user_cars_detailed(user_id)
+    if not updated_list:
+      await callback.message.edit_text(
+          "🚙 **Твой гараж пуст!** Все машины проданы.",
+          reply_markup=InlineKeyboardMarkup(
+              inline_keyboard=[
+                  [
+                      InlineKeyboardButton(
+                          text="🚗 В автосалон", callback_data="garage_to_shop"
+                      )
+                  ],
+                  [
+                      InlineKeyboardButton(
+                          text="❌ Выйти в меню", callback_data="gar_exit"
+                      )
+                  ],
+              ]
+          ),
+      )
+    else:
+      await show_garage_page(callback, index - 1)
 
 
 # --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
