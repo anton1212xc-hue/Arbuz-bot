@@ -1,7 +1,10 @@
 import asyncio
 import logging
+import os
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
@@ -9,10 +12,7 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 # Токен вашего бота
 TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
 
-# Главное отличие для ShuzaGram: переопределяем базовый URL для API
-# (используем кастомный сервер вместо api.telegram.org)
-from aiogram.client.session.aiohttp import AiohttpSession
-
+# Настройка сессии для ShuzaGram
 session = AiohttpSession(
     api=dict(
         base="https://api.shuzagram.com/bot{token}/{method}",
@@ -20,7 +20,6 @@ session = AiohttpSession(
     )
 )
 
-# Инициализируем бота с кастомной сессией
 bot = Bot(
     token=TOKEN,
     session=session,
@@ -100,16 +99,38 @@ async def market_handler(message: Message):
   await message.answer(text)
 
 
-# Общий обработчик для остального текста
+# Общий обработчик текста
 @dp.message()
 async def echo_handler(message: Message):
   await message.answer("Чет непонятная малява. Пользуйся меню или пиши /start, бро.")
 
 
+# --- ЗАГЛУШКА ВЕБ-СЕРВЕРА ДЛЯ RENDER ---
+async def handle(request):
+  return web.Response(
+      text="Бот Бандит успешно пашет на ShuzaGram и ждет маслин!"
+  )
+
+
+async def start_web_server():
+  app = web.Application()
+  app.router.add_get("/", handle)
+  runner = web.AppRunner(app)
+  await runner.setup()
+  port = int(os.environ.get("PORT", 10000))
+  site = web.TCPSite(runner, "0.0.0.0", port)
+  await site.start()
+  print(f"Веб-сервер-заглушка запущен на порту {port}")
+
+
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Бот бандит на aiogram успешно запущен в ShuzaGram!")
-  # Удаляем вебхуки и запускаем поллинг
+  print("Бот бандит на aiogram запускается...")
+
+  # Запускаем веб-сервер для порта Render
+  asyncio.create_task(start_web_server())
+
+  # Запускаем поллинг бота
   await bot.delete_webhook(drop_pending_updates=True)
   await dp.start_polling(bot)
 
