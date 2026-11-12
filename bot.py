@@ -39,7 +39,7 @@ DB_FILE = "database.json"
 
 users_db = {}  # {user_id (int): user_data}
 username_to_id = {}  # Для поиска по @username
-active_games = {}  # {user_id: {...}}
+active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
@@ -50,9 +50,7 @@ def load_database():
     try:
       with open(DB_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
-        # JSON сохраняет ключи словарей как строки, конвертируем user_id обратно в int
         users_db = {int(k): v for k, v in data.items()}
-        # Восстанавливаем словарь юзернеймов
         for u_id, u_data in users_db.items():
           if "username" in u_data and u_data["username"]:
             username_to_id[u_data["username"].lower()] = u_id
@@ -65,7 +63,6 @@ def load_database():
 def save_database():
   try:
     with open(DB_FILE, "w", encoding="utf-8") as f:
-      # json требует строковые ключи, у нас user_id и так преобразуется
       json.dump(users_db, f, ensure_ascii=False, indent=4)
   except Exception as e:
     print(f"Ошибка сохранения базы данных: {e}")
@@ -85,7 +82,7 @@ def get_user(user_id, username=None):
     users_db[user_id]["username"] = username.lower()
     username_to_id[username.lower()] = user_id
 
-  save_database()  # Автосохранение при получении/создании пользователя
+  save_database()
   return users_db[user_id]
 
 
@@ -404,20 +401,23 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
+# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ С РАНДОМНЫМ ПРАВИЛЬНЫМ ОТВЕТОМ ---
 
 
 @dp.message(F.text == "💼 Работа")
 async def work_handler(message: Message):
   await message.answer(
-      "мяумс, выбери тему. В каждой работе своя уникальная мини-игра:",
+      "мяумс, выбери тему. В каждой работе правильный выбор генерируется"
+      " случайно каждый раз!",
       reply_markup=get_work_menu(),
   )
 
 
 @dp.message(F.text == "🤝 Раскидать рефки")
 async def work_ref_start(message: Message):
-  active_games[message.from_user.id] = {"job": "ref"}
+  variants = ["💬 Спам в ЛС", "📢 Пост в чате", "🚪 Зайти в комменты"]
+  correct_variant = random.choice(variants)
+  active_games[message.from_user.id] = {"job": "ref", "correct": correct_variant}
   await message.answer(
       "📱 Ты засел за спам. Куда закинешь пацанам ссылку?",
       reply_markup=get_ref_keyboard(),
@@ -426,7 +426,9 @@ async def work_ref_start(message: Message):
 
 @dp.message(F.text == "🚕 Угон тачки")
 async def work_car_start(message: Message):
-  active_games[message.from_user.id] = {"job": "car"}
+  variants = ["🔴 Красный провод", "🔵 Синий провод", "🟢 Зеленый провод"]
+  correct_variant = random.choice(variants)
+  active_games[message.from_user.id] = {"job": "car", "correct": correct_variant}
   await message.answer(
       "🚗 Взломал тачку под окнами. Какой провод дергать?",
       reply_markup=get_car_keyboard(),
@@ -435,7 +437,16 @@ async def work_car_start(message: Message):
 
 @dp.message(F.text == "🧱 Стрелка за блок")
 async def work_block_start(message: Message):
-  active_games[message.from_user.id] = {"job": "block"}
+  variants = [
+      "🛡 Сесть за укрытие",
+      "💥 Идти в лобовую",
+      "🏃 Обойти с фланга",
+  ]
+  correct_variant = random.choice(variants)
+  active_games[message.from_user.id] = {
+      "job": "block",
+      "correct": correct_variant,
+  }
   await message.answer(
       "🧱 На районе замес. Какую тактику выберешь?",
       reply_markup=get_block_keyboard(),
@@ -444,7 +455,13 @@ async def work_block_start(message: Message):
 
 @dp.message(F.text == "👮 Сходняк")
 async def work_fed_start(message: Message):
-  active_games[message.from_user.id] = {"job": "fed"}
+  variants = [
+      "💼 Дать на лапу",
+      "🗣 Качать права",
+      "🤝 Порешать по понятиям",
+  ]
+  correct_variant = random.choice(variants)
+  active_games[message.from_user.id] = {"job": "fed", "correct": correct_variant}
   await message.answer(
       "👮 Серьезный базар с авторитетами. Как поведешь себя?",
       reply_markup=get_fed_keyboard(),
@@ -483,40 +500,28 @@ async def process_job_choice(message: Message):
 
   game_data = active_games.pop(user_id)
   job_type = game_data["job"]
+  correct_variant = game_data["correct"]
   user = get_user(user_id, message.from_user.username)
   choice = message.text
 
-  win = False
-  prize = 0
+  # Награды в зависимости от работы
+  prizes = {"ref": 250, "car": 600, "block": 1000, "fed": 1800}
+  prize = prizes.get(job_type, 300)
 
-  if job_type == "ref":
-    winning_choice = "📢 Пост в чате"
-    prize = 250
-    win = choice == winning_choice
-  elif job_type == "car":
-    winning_choice = "🔵 Синий провод"
-    prize = 600
-    win = choice == winning_choice
-  elif job_type == "block":
-    winning_choice = "🏃 Обойти с фланга"
-    prize = 1000
-    win = choice == winning_choice
-  elif job_type == "fed":
-    winning_choice = "🤝 Порешать по понятиям"
-    prize = 1800
-    win = choice == winning_choice
-
-  if win:
+  # Сравниваем выбор игрока со случайно загаданным правильным ответом
+  if choice == correct_variant:
     user["money"] += prize
     save_database()
     await message.answer(
-        f"🎯 Четкий расчет! Выбор ({choice}) верный.\nУспех! Получено:"
+        f"🎯 Четкий расчет! Выбор ({choice}) оказался верным.\nУспех! Получено:"
         f" **+${prize:,}**! 💸\nБаланс: ${user['money']:,}",
         reply_markup=get_work_menu(),
     )
   else:
     await message.answer(
-        f"💥 Мимо! Выбор ({choice}) прогорел. Ушел ни с чем.",
+        f"💥 Мимо! Ты выбрал `{choice}`, но правильным ответом в этот раз был"
+        f" другой вариант. Менты / конкуренты тебя приняли, ушел ни с чем.",
+        parse_mode="Markdown",
         reply_markup=get_work_menu(),
     )
 
