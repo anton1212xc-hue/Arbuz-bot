@@ -275,18 +275,6 @@ CARS = {
         "speed": "325 км/ч",
         "rarity": "🟣 Спорткар",
     },
-    "rolls_royce": {
-        "name": "🚙 Rolls-Royce Cullinan",
-        "cost": 7500000,
-        "speed": "250 км/ч",
-        "rarity": "🟡 Премиум",
-    },
-    "bugatti_divo": {
-        "name": "🏎 Bugatti Divo",
-        "cost": 15000000,
-        "speed": "380 км/ч",
-        "rarity": "👑 Ликвид (Донат)",
-    },
     "jesko": {
         "name": "🏎 Koenigsegg Jesko",
         "cost_stars": 300,
