@@ -287,6 +287,13 @@ CARS = {
         "speed": "380 км/ч",
         "rarity": "👑 Ликвид (Донат)",
     },
+    "jesko": {
+        "name": "🏎 Koenigsegg Jesko",
+        "cost_stars": 300,
+        "cost": 0,  # За звезды
+        "speed": "480 км/ч",
+        "rarity": "👑 Ликвид (Донат)",
+    },
 }
 car_keys = list(CARS.keys())
 
@@ -385,6 +392,15 @@ def get_business_menu():
 
 
 def get_autosalon_inline(index: int):
+  key = car_keys[index]
+  car = CARS[key]
+  # Если машина за звезды, меняем текст кнопки покупки
+  buy_text = (
+      f"⭐ Купить за {car['cost_stars']} звезд"
+      if "cost_stars" in car
+      else "🛒 Купить эту тачку"
+  )
+
   return InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -397,7 +413,7 @@ def get_autosalon_inline(index: int):
           ],
           [
               InlineKeyboardButton(
-                  text="🛒 Купить эту тачку", callback_data=f"car_buy_{index}"
+                  text=buy_text, callback_data=f"car_buy_{index}"
               )
           ],
           [
@@ -737,12 +753,18 @@ async def show_car_page(message_or_callback, index=0, edit=True):
   key = car_keys[index]
   car = CARS[key]
 
+  price_str = (
+      f"⭐ **{car['cost_stars']} Звезд**"
+      if "cost_stars" in car
+      else f"**${car['cost']:,}**"
+  )
+
   text = (
       f"🚗 **Автосалон «У Палыча»**\n\n"
       f"🚙 Модель: **{car['name']}**\n"
       f"🏷 Редкость: **{car['rarity']}**\n"
       f"⚡️ Макс. скорость: `{car['speed']}`\n"
-      f"💰 Цена: **${car['cost']:,}**\n\n"
+      f"💰 Цена: {price_str}\n\n"
       f"📄 Чёткая тачка, бери не пожалеешь!"
   )
 
@@ -791,9 +813,11 @@ async def show_garage_page(callback, index=0):
           "rarity": "🟢 Развалюха",
       },
   )
-  sell_price = int(car["cost"] / 2)
+  sell_price = int(car["cost"] / 2) if "cost" in car and car["cost"] > 0 else 0
   slot_number = index + 1
   total_slots = len(cars_list)
+
+  sell_str = f"**${sell_price:,}** (50% от гос. цены)" if sell_price > 0 else "Бесценно (Донат)"
 
   text = (
       f"🚙 **Твой гараж («У Палыча»)**\n\n"
@@ -801,7 +825,7 @@ async def show_garage_page(callback, index=0):
       f"🚗 Модель: **{car['name']}**\n"
       f"🏷 Редкость: **{car['rarity']}**\n"
       f"⚡️ Макс. скорость: `{car['speed']}`\n"
-      f"💵 Цена продажи этого слота: **${sell_price:,}** (50% от гос. цены)\n\n"
+      f"💵 Цена продажи этого слота: {sell_str}\n\n"
       f"🔄 Листай слоты кнопками ниже:"
   )
 
@@ -850,6 +874,19 @@ async def autosalon_callback_handler(callback):
     car = CARS[key]
     user = get_user(callback.from_user.id, callback.from_user.username)
 
+    if "cost_stars" in car:
+      # Покупка донатной тачки за звезды
+      prices = [LabeledPrice(label=f"🏎 {car['name']}", amount=car["cost_stars"])]
+      await callback.message.answer_invoice(
+          title=f"Покупка {car['name']}",
+          description=f"Эксклюзивная донатная тачка! Макс. скорость: {car['speed']}.",
+          payload=f"buy_car_{key}",
+          currency="XTR",
+          prices=prices,
+      )
+      await callback.answer()
+      return
+
     if user["money"] < car["cost"]:
       await callback.answer(
           f"Не хватает бабосов! Нужно ${car['cost']:,}, а у тебя"
@@ -864,6 +901,37 @@ async def autosalon_callback_handler(callback):
 
     await callback.answer(f"🎉 Успешно куплено: {car['name']}!", show_alert=True)
     await show_car_page(callback, index, edit=True)
+
+
+@dp.message(F.successful_payment)
+async def successful_payment_handler(message: Message):
+  user_id = message.from_user.id
+  get_user(user_id, message.from_user.username)
+  payload = message.successful_payment.invoice_payload
+
+  if payload == "buy_vip_cartel":
+    await add_user_business_and_backup(user_id, "vip_cartel")
+    item_name = "Картель"
+  elif payload.startswith("buy_car_"):
+    car_key = payload.replace("buy_car_", "")
+    await add_user_car_and_backup(user_id, car_key)
+    item_name = CARS.get(car_key, {"name": "Тачка"})["name"]
+
+  if OWNER_ID and user_id != OWNER_ID:
+    try:
+      await bot.send_message(
+          OWNER_ID,
+          f"👑 Внимание! @{message.from_user.username or user_id} купил"
+          f" {item_name} за звезды!",
+      )
+    except Exception:
+      pass
+
+  await message.answer(
+      f"👑 Оплата прошла успешно! **{item_name}** добавлена в твою"
+      " коллекцию! 🔥",
+      reply_markup=get_main_menu(),
+  )
 
 
 @dp.callback_query(F.data.startswith("gar_"))
@@ -905,6 +973,11 @@ async def garage_callback_handler(callback):
 
     _, key = target_car
     car = CARS[key]
+    
+    if "cost_stars" in car:
+      await callback.answer("Донатные тачки нельзя продать за баксы!", show_alert=True)
+      return
+
     sell_price = int(car["cost"] / 2)
 
     remove_car_by_db_id(db_id)
@@ -1213,29 +1286,6 @@ async def buy_cartel_stars(message: Message):
 @dp.pre_checkout_query()
 async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
   await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-
-@dp.message(F.successful_payment)
-async def successful_payment_handler(message: Message):
-  user_id = message.from_user.id
-  get_user(user_id, message.from_user.username)
-  await add_user_business_and_backup(user_id, "vip_cartel")
-
-  if OWNER_ID and user_id != OWNER_ID:
-    try:
-      await bot.send_message(
-          OWNER_ID,
-          f"👑 Внимание! @{message.from_user.username or user_id} купил"
-          " Картель за 250 Звезд!",
-      )
-    except Exception:
-      pass
-
-  await message.answer(
-      "👑 Оплата прошла успешно! Еще один **Картель** добавлен в твою"
-      " империю! 🔥",
-      reply_markup=get_main_menu(),
-  )
 
 
 @dp.message(F.text == "💼 Мои бизнесы")
