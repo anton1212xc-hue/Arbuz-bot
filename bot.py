@@ -255,17 +255,37 @@ CARS = {
         "name": "🚗 ВАЗ 2107 (Пуд соли)",
         "cost": 15000,
         "speed": "160 км/ч",
+        "rarity": "🟢 Развалюха",
     },
-    "bmw_e34": {"name": "🏎 BMW E34 (Бумер)", "cost": 80000, "speed": "240 км/ч"},
+    "bmw_e34": {
+        "name": "🏎 BMW E34 (Бумер)",
+        "cost": 80000,
+        "speed": "240 км/ч",
+        "rarity": "🔵 Элегантная",
+    },
     "gelik": {
         "name": "🚙 Mercedes G-Class (Гелик)",
         "cost": 350000,
         "speed": "220 км/ч",
+        "rarity": "🟣 Спорткар",
     },
     "lamborghini": {
         "name": "🏎 Lamborghini Huracan",
         "cost": 1200000,
         "speed": "325 км/ч",
+        "rarity": "🟣 Спорткар",
+    },
+    "rolls_royce": {
+        "name": "🚙 Rolls-Royce Cullinan",
+        "cost": 7500000,
+        "speed": "250 км/ч",
+        "rarity": "🟡 Премиум",
+    },
+    "bugatti_divo": {
+        "name": "🏎 Bugatti Divo",
+        "cost": 15000000,
+        "speed": "380 км/ч",
+        "rarity": "👑 Ликвид (Донат)",
     },
 }
 car_keys = list(CARS.keys())
@@ -720,6 +740,7 @@ async def show_car_page(message_or_callback, index=0, edit=True):
   text = (
       f"🚗 **Автосалон «У Палыча»**\n\n"
       f"🚙 Модель: **{car['name']}**\n"
+      f"🏷 Редкость: **{car['rarity']}**\n"
       f"⚡️ Макс. скорость: `{car['speed']}`\n"
       f"💰 Цена: **${car['cost']:,}**\n\n"
       f"📄 Чёткая тачка, бери не пожалеешь!"
@@ -761,7 +782,15 @@ async def show_garage_page(callback, index=0):
 
   index = index % len(cars_list)
   db_id, key = cars_list[index]
-  car = CARS.get(key, {"name": key, "speed": "???", "cost": 0})
+  car = CARS.get(
+      key,
+      {
+          "name": key,
+          "speed": "???",
+          "cost": 0,
+          "rarity": "🟢 Развалюха",
+      },
+  )
   sell_price = int(car["cost"] / 2)
   slot_number = index + 1
   total_slots = len(cars_list)
@@ -770,6 +799,7 @@ async def show_garage_page(callback, index=0):
       f"🚙 **Твой гараж («У Палыча»)**\n\n"
       f"🅿️ **Слот №{slot_number} из {total_slots}**\n"
       f"🚗 Модель: **{car['name']}**\n"
+      f"🏷 Редкость: **{car['rarity']}**\n"
       f"⚡️ Макс. скорость: `{car['speed']}`\n"
       f"💵 Цена продажи этого слота: **${sell_price:,}** (50% от гос. цены)\n\n"
       f"🔄 Листай слоты кнопками ниже:"
@@ -1355,7 +1385,7 @@ async def keep_alive():
       async with aiohttp.ClientSession() as session:
         async with session.get(render_url) as resp:
           print(f"Пинг сервера для поддержания активности: статус {resp.status}")
-    except Exception as e:
+    exceptException as e:
       print(f"Ошибка пинга: {e}")
 
 
