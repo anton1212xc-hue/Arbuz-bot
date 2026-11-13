@@ -1385,7 +1385,7 @@ async def keep_alive():
       async with aiohttp.ClientSession() as session:
         async with session.get(render_url) as resp:
           print(f"Пинг сервера для поддержания активности: статус {resp.status}")
-    exceptException as e:
+    except Exception as e:
       print(f"Ошибка пинга: {e}")
 
 
