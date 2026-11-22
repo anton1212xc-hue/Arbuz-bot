@@ -21,13 +21,13 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Твой актуальный токен бота
-TOKEN = "1780243447:z-EViDoEUiE61aHerKad4WazMWTsKC3OraH"
+# Новый токен и новый сервер NyxGram
+TOKEN = "1780244286:e14-_-S9Awi4EGWX2sUeNYIpPmVA3jU7Jrb"
 OWNER_ID = 1780243435  # Твой личный ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
-# Настройка кастомного сервера для ShuzaGram в aiogram 3.x
-custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
+# Настройка кастомного сервера NyxGram в aiogram 3.x
+custom_server = TelegramAPIServer.from_base("https://nyxgram.new.tg")
 session = AiohttpSession(api=custom_server)
 
 bot = Bot(
@@ -275,10 +275,22 @@ CARS = {
         "speed": "325 км/ч",
         "rarity": "🟣 Спорткар",
     },
+    "rolls_royce": {
+        "name": "🚙 Rolls-Royce Cullinan",
+        "cost": 7500000,
+        "speed": "250 км/ч",
+        "rarity": "🟡 Премиум",
+    },
+    "bugatti_divo": {
+        "name": "🏎 Bugatti Divo",
+        "cost": 15000000,
+        "speed": "380 км/ч",
+        "rarity": "👑 Ликвид (Донат)",
+    },
     "jesko": {
         "name": "🏎 Koenigsegg Jesko",
         "cost_stars": 300,
-        "cost": 0,  # За звезды
+        "cost": 0,
         "speed": "480 км/ч",
         "rarity": "👑 Ликвид (Донат)",
     },
@@ -382,7 +394,6 @@ def get_business_menu():
 def get_autosalon_inline(index: int):
   key = car_keys[index]
   car = CARS[key]
-  # Если машина за звезды, меняем текст кнопки покупки
   buy_text = (
       f"⭐ Купить за {car['cost_stars']} звезд"
       if "cost_stars" in car
@@ -805,7 +816,11 @@ async def show_garage_page(callback, index=0):
   slot_number = index + 1
   total_slots = len(cars_list)
 
-  sell_str = f"**${sell_price:,}** (50% от гос. цены)" if sell_price > 0 else "Бесценно (Донат)"
+  sell_str = (
+      f"**${sell_price:,}** (50% от гос. цены)"
+      if sell_price > 0
+      else "Бесценно (Донат)"
+  )
 
   text = (
       f"🚙 **Твой гараж («У Палыча»)**\n\n"
@@ -863,11 +878,12 @@ async def autosalon_callback_handler(callback):
     user = get_user(callback.from_user.id, callback.from_user.username)
 
     if "cost_stars" in car:
-      # Покупка донатной тачки за звезды
       prices = [LabeledPrice(label=f"🏎 {car['name']}", amount=car["cost_stars"])]
       await callback.message.answer_invoice(
           title=f"Покупка {car['name']}",
-          description=f"Эксклюзивная донатная тачка! Макс. скорость: {car['speed']}.",
+          description=(
+              f"Эксклюзивная донатная тачка! Макс. скорость: {car['speed']}."
+          ),
           payload=f"buy_car_{key}",
           currency="XTR",
           prices=prices,
@@ -961,9 +977,11 @@ async def garage_callback_handler(callback):
 
     _, key = target_car
     car = CARS[key]
-    
+
     if "cost_stars" in car:
-      await callback.answer("Донатные тачки нельзя продать за баксы!", show_alert=True)
+      await callback.answer(
+          "Донатные тачки нельзя продать за баксы!", show_alert=True
+      )
       return
 
     sell_price = int(car["cost"] / 2)
