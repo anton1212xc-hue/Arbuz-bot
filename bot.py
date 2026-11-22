@@ -21,13 +21,13 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Новый токен и новый сервер NyxGram
-TOKEN = "1780244286:e14-_-S9Awi4EGWX2sUeNYIpPmVA3jU7Jrb"
-OWNER_ID = 1780243435  # Твой личный ID
+# Токен для ШузаГрам
+TOKEN = "1780243414:1GSEOqcNmxiSHWOyR_P0e68PEzz6N7_OYkt"
+OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
-# Настройка кастомного сервера NyxGram в aiogram 3.x
-custom_server = TelegramAPIServer.from_base("https://nyxgram.new.tg")
+# Настройка кастомного сервера для ShuzaGram в aiogram 3.x
+custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
 session = AiohttpSession(api=custom_server)
 
 bot = Bot(
