@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import random
@@ -7,7 +6,6 @@ import threading
 import time
 import requests
 
-# Твой токен ШузаГрам
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 URL = f"https://api.shuzagram.com/bot{TOKEN}/"
 
@@ -16,66 +14,8 @@ active_games = {}
 admin_session = set()
 ADMIN_PASSWORD = "gver1212"
 
-# Токены берутся из переменных окружения Render
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_REPO = os.environ.get("GITHUB_REPO")
-
-db_lock = threading.Lock()
-
-
-def async_sync_db():
-  """Фоновое сохранение базы на GitHub без задержек в чате"""
-
-  def save_worker():
-    with db_lock:
-      if not GITHUB_TOKEN or not GITHUB_REPO:
-        return
-      try:
-        if not os.path.exists(DB_FILE):
-          return
-        with open(DB_FILE, "rb") as f:
-          content_bytes = f.read()
-
-        encoded_content = base64.b64encode(content_bytes).decode("utf-8")
-        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DB_FILE}"
-        headers = {
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-        }
-
-        r = requests.get(api_url, headers=headers, timeout=10)
-        sha = r.json().get("sha") if r.status_code == 200 else None
-
-        data = {
-            "message": "Auto-save database.db [Async Backup]",
-            "content": encoded_content,
-        }
-        if sha:
-          data["sha"] = sha
-
-        requests.put(api_url, headers=headers, json=data, timeout=10)
-      except Exception as e:
-        print(f"[GitHub Sync Error] {e}")
-
-  threading.Thread(target=save_worker, daemon=True).start()
-
 
 def init_db():
-  if not os.path.exists(DB_FILE) and GITHUB_TOKEN and GITHUB_REPO:
-    try:
-      api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DB_FILE}"
-      headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
-      r = requests.get(api_url, headers=headers)
-      if r.status_code == 200:
-        download_url = r.json().get("download_url")
-        if download_url:
-          db_data = requests.get(download_url).content
-          with open(DB_FILE, "wb") as f:
-            f.write(db_data)
-          print("[Init DB] База данных успешно скачана с GitHub!")
-    except Exception as e:
-      print(f"[Init DB Error] {e}")
-
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute("""
@@ -258,49 +198,47 @@ def get_admin_menu():
   return {
       "keyboard": [
           [{"text": "💸 Выдать бабло"}, {"text": "🏢 Выдать бизнес"}],
-          [{"text": "⭐ Вывести звезды"}, {"text": "📢 Сделать рассылку"}],
-          [{"text": "🚪 Выйти из админки"}],
+          [{"text": "📢 Сделать рассылку"}, {"text": "🚪 Выйти из админки"}],
       ],
       "resize_keyboard": True,
   }
 
 
 def get_user(user_id, username=None):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT user_id, username, money, defense, rank FROM users WHERE"
-        " user_id = ?",
-        (user_id,),
-    )
-    row = cursor.fetchone()
-    clean_username = username.lower() if username else str(user_id)
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "SELECT user_id, username, money, defense, rank FROM users WHERE"
+      " user_id = ?",
+      (user_id,),
+  )
+  row = cursor.fetchone()
+  clean_username = username.lower() if username else str(user_id)
 
-    if not row:
+  if not row:
+    cursor.execute(
+        "INSERT INTO users (user_id, username, money, defense, rank) VALUES (?,"
+        " ?, 1000, 10, 'Скуф / Обычный чел')",
+        (user_id, clean_username),
+    )
+    conn.commit()
+    money, defense, rank = 1000, 10, "Скуф / Обычный чел"
+  else:
+    _, db_username, money, defense, rank = row
+    if username and db_username != clean_username:
       cursor.execute(
-          "INSERT INTO users (user_id, username, money, defense, rank) VALUES"
-          " (?, ?, 1000, 10, 'Скуф / Обычный чел')",
-          (user_id, clean_username),
+          "UPDATE users SET username = ? WHERE user_id = ?",
+          (clean_username, user_id),
       )
       conn.commit()
-      money, defense, rank = 1000, 10, "Скуф / Обычный чел"
-    else:
-      _, db_username, money, defense, rank = row
-      if username and db_username != clean_username:
-        cursor.execute(
-            "UPDATE users SET username = ? WHERE user_id = ?",
-            (clean_username, user_id),
-        )
-        conn.commit()
 
-    cursor.execute(
-        "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
-    )
-    businesses = [b[0] for b in cursor.fetchall()]
-    cursor.execute("SELECT car_key FROM cars WHERE user_id = ?", (user_id,))
-    cars = [c[0] for c in cursor.fetchall()]
-    conn.close()
+  cursor.execute(
+      "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
+  )
+  businesses = [b[0] for b in cursor.fetchall()]
+  cursor.execute("SELECT car_key FROM cars WHERE user_id = ?", (user_id,))
+  cars = [c[0] for c in cursor.fetchall()]
+  conn.close()
 
   return {
       "user_id": user_id,
@@ -316,95 +254,84 @@ def get_user(user_id, username=None):
 def update_user_money_and_stats(
     user_id, money=None, defense=None, rank=None
 ):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    if money is not None:
-      cursor.execute(
-          "UPDATE users SET money = ? WHERE user_id = ?", (money, user_id)
-      )
-    if defense is not None:
-      cursor.execute(
-          "UPDATE users SET defense = ? WHERE user_id = ?", (defense, user_id)
-      )
-    if rank is not None:
-      cursor.execute(
-          "UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id)
-      )
-    conn.commit()
-    conn.close()
-  async_sync_db()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  if money is not None:
+    cursor.execute(
+        "UPDATE users SET money = ? WHERE user_id = ?", (money, user_id)
+    )
+  if defense is not None:
+    cursor.execute(
+        "UPDATE users SET defense = ? WHERE user_id = ?", (defense, user_id)
+    )
+  if rank is not None:
+    cursor.execute(
+        "UPDATE users SET rank = ? WHERE user_id = ?", (rank, user_id)
+    )
+  conn.commit()
+  conn.close()
 
 
 def add_user_business(user_id, biz_key):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO businesses (user_id, biz_key) VALUES (?, ?)",
-        (user_id, biz_key),
-    )
-    conn.commit()
-    conn.close()
-  async_sync_db()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO businesses (user_id, biz_key) VALUES (?, ?)",
+      (user_id, biz_key),
+  )
+  conn.commit()
+  conn.close()
 
 
 def add_user_car(user_id, car_key):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO cars (user_id, car_key) VALUES (?, ?)", (user_id, car_key)
-    )
-    conn.commit()
-    conn.close()
-  async_sync_db()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO cars (user_id, car_key) VALUES (?, ?)", (user_id, car_key)
+  )
+  conn.commit()
+  conn.close()
 
 
 def get_user_cars_detailed(user_id):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, car_key FROM cars WHERE user_id = ?", (user_id,))
-    rows = cursor.fetchall()
-    conn.close()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("SELECT id, car_key FROM cars WHERE user_id = ?", (user_id,))
+  rows = cursor.fetchall()
+  conn.close()
   return rows
 
 
 def remove_car_by_db_id(db_id):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM cars WHERE id = ?", (db_id,))
-    conn.commit()
-    conn.close()
-  async_sync_db()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("DELETE FROM cars WHERE id = ?", (db_id,))
+  conn.commit()
+  conn.close()
 
 
 def get_all_user_ids():
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users")
-    rows = cursor.fetchall()
-    conn.close()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  cursor.execute("SELECT user_id FROM users")
+  rows = cursor.fetchall()
+  conn.close()
   return [row[0] for row in rows]
 
 
 def get_user_by_username_or_id(target_raw):
-  with db_lock:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    if target_raw.isdigit():
-      cursor.execute(
-          "SELECT user_id FROM users WHERE user_id = ?", (int(target_raw),)
-      )
-    else:
-      cursor.execute(
-          "SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw,)
-      )
-    row = cursor.fetchone()
-    conn.close()
+  conn = sqlite3.connect(DB_FILE)
+  cursor = conn.cursor()
+  if target_raw.isdigit():
+    cursor.execute(
+        "SELECT user_id FROM users WHERE user_id = ?", (int(target_raw),)
+    )
+  else:
+    cursor.execute(
+        "SELECT user_id FROM users WHERE LOWER(username) = ?", (target_raw,)
+    )
+  row = cursor.fetchone()
+  conn.close()
   return row[0] if row else None
 
 
@@ -556,28 +483,6 @@ def process_message(message):
       )
       return
 
-    elif state.get("action") == "withdraw_stars":
-      active_games.pop(user_id, None)
-      if text == "⬅️ Назад":
-        send_message(chat_id, "Отменено.", reply_markup=get_admin_menu())
-        return
-      if text.isdigit():
-        stars_amount = int(text)
-        send_message(
-            chat_id,
-            f"⚠️ Автоматический вывод {stars_amount} звезд через API бота"
-            " временно недоступен на платформе ШузаГрам. Выведите их через"
-            " официальный интерфейс панели управления ботом.",
-            reply_markup=get_admin_menu(),
-        )
-        return
-      send_message(
-          chat_id,
-          "❌ Введите количество звезд числом!",
-          reply_markup=get_admin_menu(),
-      )
-      return
-
     elif state.get("action") == "broadcast":
       active_games.pop(user_id, None)
       if text == "⬅️ Назад":
@@ -676,14 +581,13 @@ def process_message(message):
     )
 
   elif text == "🏆 Топ бандюков":
-    with db_lock:
-      conn = sqlite3.connect(DB_FILE)
-      cursor = conn.cursor()
-      cursor.execute(
-          "SELECT username, money FROM users ORDER BY money DESC LIMIT 10"
-      )
-      rows = cursor.fetchall()
-      conn.close()
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT username, money FROM users ORDER BY money DESC LIMIT 10"
+    )
+    rows = cursor.fetchall()
+    conn.close()
     msg = "🏆 **Топ-10 авторитетов:**\n\n"
     if not rows:
       msg += "Пока нет игроков в топе."
@@ -720,17 +624,6 @@ def process_message(message):
     send_message(
         chat_id,
         "Введите: `@username ключ`",
-        reply_markup={
-            "keyboard": [[{"text": "⬅️ Назад"}]],
-            "resize_keyboard": True,
-        },
-    )
-
-  elif text == "⭐ Вывести звезды" and user_id in admin_session:
-    active_games[user_id] = {"action": "withdraw_stars"}
-    send_message(
-        chat_id,
-        "⭐ Сколько звезд вывести на юзернейм **@media**? Напишите числом:",
         reply_markup={
             "keyboard": [[{"text": "⬅️ Назад"}]],
             "resize_keyboard": True,
@@ -1022,37 +915,35 @@ def hourly_income_loop():
   while True:
     time.sleep(3600)
     try:
-      with db_lock:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT user_id FROM businesses")
-        users = cursor.fetchall()
-        for (u_id,) in users:
-          cursor.execute(
-              "SELECT biz_key FROM businesses WHERE user_id = ?", (u_id,)
-          )
-          b_keys = [b[0] for b in cursor.fetchall()]
-          from collections import Counter
+      conn = sqlite3.connect(DB_FILE)
+      cursor = conn.cursor()
+      cursor.execute("SELECT DISTINCT user_id FROM businesses")
+      users = cursor.fetchall()
+      for (u_id,) in users:
+        cursor.execute(
+            "SELECT biz_key FROM businesses WHERE user_id = ?", (u_id,)
+        )
+        b_keys = [b[0] for b in cursor.fetchall()]
+        from collections import Counter
 
-          counts = Counter(b_keys)
-          total = sum(
-              BUSINESSES[k]["income"] * cnt
-              for k, cnt in counts.items()
-              if k in BUSINESSES
+        counts = Counter(b_keys)
+        total = sum(
+            BUSINESSES[k]["income"] * cnt
+            for k, cnt in counts.items()
+            if k in BUSINESSES
+        )
+        if total > 0:
+          cursor.execute(
+              "UPDATE users SET money = money + ? WHERE user_id = ?",
+              (total, u_id),
           )
-          if total > 0:
-            cursor.execute(
-                "UPDATE users SET money = money + ? WHERE user_id = ?",
-                (total, u_id),
-            )
-            conn.commit()
-            send_message(
-                u_id,
-                f"💵 **Пассивный доход!**\nТвои бизнесы принесли **+${total:,}**"
-                " за час.",
-            )
-        conn.close()
-      async_sync_db()
+          conn.commit()
+          send_message(
+              u_id,
+              f"💵 **Пассивный доход!**\nТвои бизнесы принесли **+${total:,}**"
+              " за час.",
+          )
+      conn.close()
     except Exception as e:
       print(f"[INCOME ERROR] {e}")
 
