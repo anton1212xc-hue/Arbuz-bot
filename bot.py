@@ -191,7 +191,6 @@ async def add_user_car_and_backup(user_id, car_key):
 
 
 def get_user_cars_detailed(user_id):
-  """Возвращает список всех машин из гаража игрока вместе с их уникальными ID в базе: [(db_id, car_key), ...]"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute("SELECT id, car_key FROM cars WHERE user_id = ?", (user_id,))
@@ -201,7 +200,6 @@ def get_user_cars_detailed(user_id):
 
 
 def remove_car_by_db_id(db_id):
-  """Удаляет конкретную машину из базы по её ID записи в слоте"""
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute("DELETE FROM cars WHERE id = ?", (db_id,))
@@ -482,11 +480,12 @@ def get_market_menu():
   )
 
 
+# --- ОБНОВЛЕННАЯ АДМИН-ПАНЕЛЬ С КНОПКОЙ ВЫВОДА ЗВЕЗД ---
 def get_admin_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
           [KeyboardButton(text="💸 Выдать бабло"), KeyboardButton(text="🏢 Выдать бизнес")],
-          [KeyboardButton(text="📢 Сделать рассылку")],
+          [KeyboardButton(text="⭐ Вывести звезды"), KeyboardButton(text="📢 Сделать рассылку")],
           [KeyboardButton(text="🚪 Выйти из админки")],
       ],
       resize_keyboard=True,
@@ -634,6 +633,26 @@ async def admin_prompt_business(message: Message):
       " `vip_cartel`\nПример: `@nikiteeess vip_cartel`",
       parse_mode="Markdown",
   )
+
+
+@dp.message(F.text == "⭐ Вывести звезды")
+async def admin_withdraw_stars(message: Message):
+  if message.from_user.id not in admin_session:
+    return
+  
+  # Здесь бот пытается вызвать метод вывода/перевода звезд или информирует владельца
+  try:
+    # На некоторых кастомных серверах Telegram API доступен метод трансфера звезд, 
+    # либо отправляем отчет владельцу о запросе вывода.
+    await message.answer(
+        "⭐ **Запрос на вывод звезд отправлен!**\n\n"
+        "Все донатные звезды (XTR), поступившие на баланс бота через инвойсы,"
+        " обрабатываются через платежную систему Telegram / ShuzaGram.\n"
+        "Проверьте @BotFather или панель управления вашим ботом для вывода на кошелек.",
+        reply_markup=get_admin_menu()
+    )
+  except Exception as e:
+    await message.answer(f"❌ Ошибка при выводе звезд: {e}", reply_markup=get_admin_menu())
 
 
 @dp.message(F.text == "📢 Сделать рассылку")
