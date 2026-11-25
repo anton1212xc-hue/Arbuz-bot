@@ -21,7 +21,7 @@ from aiogram.types import (
     Update,
 )
 
-# Токен из бота ShuzaGram BotFather
+# Твой рабочий токен ShuzaGram
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
@@ -1488,8 +1488,12 @@ async def main():
   await site.start()
   print(f"Веб-сервер запущен на порту {port}")
 
-  # Бесконечно держим приложение запущенным для вебхуков
-  await asyncio.Event().wait()
+  # Бесконечно держим приложение запущенным и корректно закрываем сессию при выходе
+  try:
+    await asyncio.Event().wait()
+  finally:
+    await bot.session.close()
+    await runner.cleanup()
 
 
 if __name__ == "__main__":
