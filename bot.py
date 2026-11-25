@@ -16,6 +16,7 @@ active_games = {}
 admin_session = set()
 ADMIN_PASSWORD = "gver1212"
 
+# Токены берутся из переменных окружения Render
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
@@ -562,30 +563,13 @@ def process_message(message):
         return
       if text.isdigit():
         stars_amount = int(text)
-        try:
-          payload = {"username": "media", "amount": stars_amount}
-          r = requests.post(URL + "transferStars", json=payload, timeout=10)
-          res_data = r.json()
-
-          if r.status_code == 200 and res_data.get("ok"):
-            send_message(
-                chat_id,
-                f"⭐ Успешно выведено **{stars_amount} звезд** на аккаунт"
-                " **@media**!",
-                reply_markup=get_admin_menu(),
-            )
-          else:
-            send_message(
-                chat_id,
-                f"⚠️ Ответ от сервера звёзд: {res_data.get('description', 'Запрос отправлен')}",
-                reply_markup=get_admin_menu(),
-            )
-        except Exception as e:
-          send_message(
-              chat_id,
-              f"❌ Ошибка запроса к API звезд: {e}",
-              reply_markup=get_admin_menu(),
-          )
+        send_message(
+            chat_id,
+            f"⚠️ Автоматический вывод {stars_amount} звезд через API бота"
+            " временно недоступен на платформе ШузаГрам. Выведите их через"
+            " официальный интерфейс панели управления ботом.",
+            reply_markup=get_admin_menu(),
+        )
         return
       send_message(
           chat_id,
@@ -701,8 +685,11 @@ def process_message(message):
       rows = cursor.fetchall()
       conn.close()
     msg = "🏆 **Топ-10 авторитетов:**\n\n"
-    for i, (u_n, mon) in enumerate(rows, 1):
-      msg += f"{i}. @{u_n} — ${mon:,}\n"
+    if not rows:
+      msg += "Пока нет игроков в топе."
+    else:
+      for i, (u_n, mon) in enumerate(rows, 1):
+        msg += f"{i}. @{u_n} — ${mon:,}\n"
     send_message(chat_id, msg, reply_markup=get_main_menu())
 
   elif text.startswith("/admin"):
@@ -1067,7 +1054,7 @@ def hourly_income_loop():
         conn.close()
       async_sync_db()
     except Exception as e:
-      print(f"[INCOMEEROR] {e}")
+      print(f"[INCOME ERROR] {e}")
 
 
 def main():
