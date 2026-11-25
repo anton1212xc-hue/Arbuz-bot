@@ -17,13 +17,13 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Твой рабочий токен ШузаГрам
+# Твой актуальный токен ШузаГрам из BotFather
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 OWNER_ID = 1780243411
 ADMIN_PASSWORD = "gver1212"
 
-# Настройка кастомного сервера для ShuzaGram
-custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com/bot")
+# Исправленная настройка кастомного сервера для ShuzaGram
+custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
 session = AiohttpSession(api=custom_server)
 
 bot = Bot(token=TOKEN, session=session)
@@ -1277,7 +1277,6 @@ async def main():
   init_db()
   asyncio.create_task(hourly_business_income())
 
-  # Очищаем вебхук перед запуском поллинга, чтобы ШузаГрам перестал ждать сервер
   try:
     await bot.delete_webhook(drop_pending_updates=True)
     print("🧹 Старый вебхук успешно сброшен.")
