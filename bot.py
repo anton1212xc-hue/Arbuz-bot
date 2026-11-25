@@ -4,6 +4,8 @@ import random
 import sqlite3
 import threading
 import time
+import http.server
+import socketserver
 import requests
 
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
@@ -13,6 +15,18 @@ DB_FILE = "database.db"
 active_games = {}
 admin_session = set()
 ADMIN_PASSWORD = "gver1212"
+
+
+# Запуск микро-сервера для ответа Render на запросы порта
+def run_dummy_server():
+  PORT = int(os.environ.get("PORT", 10000))
+  Handler = http.server.SimpleHTTPRequestHandler
+  try:
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+      print(f"[Server] Веб-сервер запущен на порту {PORT}")
+      httpd.serve_forever()
+  except Exception as e:
+    print(f"[Server Error] {e}")
 
 
 def init_db():
@@ -950,7 +964,10 @@ def hourly_income_loop():
 
 def main():
   init_db()
-  print("Запуск бота...")
+  print("Запуск бота и веб-сервера портов...")
+
+  # Запускаем веб-сервер в фоновом потоке, чтобы Render видел открытый порт
+  threading.Thread(target=run_dummy_server, daemon=True).start()
   threading.Thread(target=hourly_income_loop, daemon=True).start()
 
   try:
