@@ -1,4 +1,6 @@
+import base64
 import json
+import os
 import random
 import sqlite3
 import threading
@@ -14,8 +16,61 @@ active_games = {}
 admin_session = set()
 ADMIN_PASSWORD = "gver1212"
 
+# Токен берется из переменных окружения Render, а не прописан в коде!
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_REPO = os.environ.get("GITHUB_REPO")
+
+
+def sync_db_to_github():
+  """Автоматически загружает database.db в репозиторий GitHub"""
+  if not GITHUB_TOKEN or not GITHUB_REPO:
+    return
+
+  try:
+    if not os.path.exists(DB_FILE):
+      return
+
+    with open(DB_FILE, "rb") as f:
+      content_bytes = f.read()
+
+    encoded_content = base64.b64encode(content_bytes).decode("utf-8")
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DB_FILE}"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    r = requests.get(api_url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+
+    data = {
+        "message": "Auto-save database.db [Bot Backup]",
+        "content": encoded_content,
+    }
+    if sha:
+      data["sha"] = sha
+
+    requests.put(api_url, headers=headers, json=data, timeout=10)
+  except Exception as e:
+    print(f"[GitHub Sync Error] {e}")
+
 
 def init_db():
+  if not os.path.exists(DB_FILE) and GITHUB_TOKEN and GITHUB_REPO:
+    try:
+      api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DB_FILE}"
+      headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+      r = requests.get(api_url, headers=headers)
+      if r.status_code == 200:
+        download_url = r.json().get("download_url")
+        if download_url:
+          db_data = requests.get(download_url).content
+          with open(DB_FILE, "wb") as f:
+            f.write(db_data)
+          print("[Init DB] База данных успешно скачана с GitHub!")
+    except Exception as e:
+      print(f"[Init DB Error] {e}")
+
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute("""
@@ -75,10 +130,7 @@ def edit_message_text(chat_id, message_id, text, reply_markup=None):
 
 
 def answer_callback_query(callback_query_id, text=None, show_alert=False):
-  data = {
-      "callback_query_id": callback_query_id,
-      "show_alert": show_alert,
-  }
+  data = {"callback_query_id": callback_query_id, "show_alert": show_alert}
   if text:
     data["text"] = text
   try:
@@ -273,6 +325,7 @@ def update_user_money_and_stats(
     )
   conn.commit()
   conn.close()
+  sync_db_to_github()
 
 
 def add_user_business(user_id, biz_key):
@@ -284,6 +337,7 @@ def add_user_business(user_id, biz_key):
   )
   conn.commit()
   conn.close()
+  sync_db_to_github()
 
 
 def add_user_car(user_id, car_key):
@@ -294,6 +348,7 @@ def add_user_car(user_id, car_key):
   )
   conn.commit()
   conn.close()
+  sync_db_to_github()
 
 
 def get_user_cars_detailed(user_id):
@@ -311,6 +366,7 @@ def remove_car_by_db_id(db_id):
   cursor.execute("DELETE FROM cars WHERE id = ?", (db_id,))
   conn.commit()
   conn.close()
+  sync_db_to_github()
 
 
 def get_all_user_ids():
@@ -338,7 +394,6 @@ def get_user_by_username_or_id(target_raw):
   return row[0] if row else None
 
 
-# Генерация клавиатур для автосалона и гаража
 def get_autosalon_inline(index: int):
   key = car_keys[index]
   car = CARS[key]
@@ -437,7 +492,6 @@ def process_message(message):
 
   user = get_user(user_id, username)
 
-  # Проверка состояний (админка, казино, работа)
   if user_id in active_games:
     state = active_games[user_id]
 
@@ -460,7 +514,7 @@ def process_message(message):
           )
           return
       send_message(
-          chat_id, "❌ Неверный формат! Попробуй еще раз.", reply_markup=get_admin_menu()
+          chat_id, "❌ Неверный формат!", reply_markup=get_admin_menu()
       )
       return
 
@@ -484,7 +538,7 @@ def process_message(message):
           )
           return
       send_message(
-          chat_id, "❌ Ошибка формата или ключа бизнеса!", reply_markup=get_admin_menu()
+          chat_id, "❌ Ошибка формата!", reply_markup=get_admin_menu()
       )
       return
 
@@ -558,17 +612,16 @@ def process_message(message):
       else:
         send_message(
             chat_id,
-            f"💥 Мимо! Правильным ответом был `{correct}`. Менты приняли тебя.",
+            f"💥 Мимо! Правильным ответом был `{correct}`.",
             reply_markup=get_work_menu(),
         )
       return
 
-  # Основные команды
   if text == "/start":
     send_message(
         chat_id,
         f"Здорово, {message['from'].get('first_name', 'Бро')}! 🤙 Добро"
-        " пожаловать в **бот бандит**.\n\nАвтосалон, бизнесы и казино ждут тебя!",
+        " пожаловать в **бот бандит**.",
         reply_markup=get_main_menu(),
     )
 
@@ -626,8 +679,7 @@ def process_message(message):
     active_games[user_id] = {"action": "give_biz"}
     send_message(
         chat_id,
-        "Введите: `@username ключ`\nКлючи: shaurma, carwash, club, casino_biz,"
-        " vip_cartel",
+        "Введите: `@username ключ`",
         reply_markup={
             "keyboard": [[{"text": "⬅️ Назад"}]],
             "resize_keyboard": True,
@@ -638,7 +690,7 @@ def process_message(message):
     active_games[user_id] = {"action": "broadcast"}
     send_message(
         chat_id,
-        "Отправьте текст для рассылки всем пользователям:",
+        "Отправьте текст для рассылки:",
         reply_markup={
             "keyboard": [[{"text": "⬅️ Назад"}]],
             "resize_keyboard": True,
@@ -721,7 +773,7 @@ def process_message(message):
     active_games[user_id] = {"job": "fed", "correct": random.choice(variants)}
     send_message(
         chat_id,
-        "👮 Как поведешь себя с авторитетами?",
+        "👮 Как поведешь себя?",
         reply_markup={
             "keyboard": [
                 [
@@ -776,8 +828,7 @@ def process_message(message):
       add_user_business(user_id, b_key)
       send_message(
           chat_id,
-          f"🎉 Куплен бизнес **{BUSINESSES[b_key]['name']}**!\nБалансы:"
-          f" ${new_m:,}",
+          f"🎉 Куплен бизнес **{BUSINESSES[b_key]['name']}**!",
           reply_markup=get_business_menu(),
       )
 
@@ -812,15 +863,13 @@ def process_message(message):
         update_user_money_and_stats(
             user_id, money=new_m, rank="Авторитет в VETEMENTS 🧥"
         )
-        send_message(
-            chat_id, f"🔥 Куплен VETEMENTS! Баланс: ${new_m:,}", reply_markup=get_market_menu()
-        )
+        send_message(chat_id, f"🔥 Куплен VETEMENTS!", reply_markup=get_market_menu())
       else:
         new_def = user["defense"] + 15
         update_user_money_and_stats(user_id, money=new_m, defense=new_def)
         send_message(
             chat_id,
-            f"🛡 Защита прокачана до {new_def}! Баланс: ${new_m:,}",
+            f"🛡 Защита прокачана до {new_def}!",
             reply_markup=get_market_menu(),
         )
   else:
@@ -951,16 +1000,16 @@ def hourly_income_loop():
               " за час.",
           )
       conn.close()
+      sync_db_to_github()
     except Exception as e:
       print(f"[INCOME ERROR] {e}")
 
 
 def main():
   init_db()
-  print("Запуск бота на чистом requests...")
+  print("Запуск бота с автосохранением на GitHub...")
   threading.Thread(target=hourly_income_loop, daemon=True).start()
 
-  # Сброс вебхука, чтобы работал Long Polling через getUpdates
   try:
     requests.get(URL + "deleteWebhook", params={"drop_pending_updates": True})
   except Exception:
