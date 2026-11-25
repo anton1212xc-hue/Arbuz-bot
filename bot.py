@@ -22,8 +22,8 @@ from aiogram.types import (
 
 # Твой рабочий токен ШузаГрам
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
-OWNER_ID = 1780243411  # Твой правильный Telegram ID
-ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
+OWNER_ID = 1780243411
+ADMIN_PASSWORD = "gver1212"
 
 # Настройка кастомного сервера для ShuzaGram
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com/bot")
@@ -34,27 +34,10 @@ dp = Dispatcher(storage=MemoryStorage())
 
 DB_FILE = "database.db"
 
-active_games = {}  # {user_id: {"job": ..., "correct": ...}}
-admin_session = set()  # Список авторизованных админов
+active_games = {}
+admin_session = set()
 
 
-# --- АВТОБЭКАП (ОБХОД ОШИБОК API ФАЙЛОВ) ---
-async def backup_database_to_owner():
-  if not OWNER_ID:
-    return
-  # База данных сохраняется локально на диске Render
-  if os.path.exists(DB_FILE):
-    try:
-      await bot.send_message(
-          OWNER_ID,
-          "🛡 **Автобэкап базы данных «Бот Бандит»**\nБаза успешно сохранена"
-          " локально на сервере.",
-      )
-    except Exception as e:
-      print(f"Ошибка бэкапа: {e}")
-
-
-# --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
 def init_db():
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
@@ -90,14 +73,12 @@ def init_db():
 def get_user(user_id, username=None):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
-
   cursor.execute(
       "SELECT user_id, username, money, defense, rank FROM users WHERE"
       " user_id = ?",
       (user_id,),
   )
   row = cursor.fetchone()
-
   clean_username = username.lower() if username else str(user_id)
 
   if not row:
@@ -121,10 +102,8 @@ def get_user(user_id, username=None):
       "SELECT biz_key FROM businesses WHERE user_id = ?", (user_id,)
   )
   businesses = [b[0] for b in cursor.fetchall()]
-
   cursor.execute("SELECT car_key FROM cars WHERE user_id = ?", (user_id,))
   cars = [c[0] for c in cursor.fetchall()]
-
   conn.close()
 
   return {
@@ -168,7 +147,6 @@ async def add_user_business_and_backup(user_id, biz_key):
   )
   conn.commit()
   conn.close()
-  await backup_database_to_owner()
 
 
 async def add_user_car_and_backup(user_id, car_key):
@@ -179,7 +157,6 @@ async def add_user_car_and_backup(user_id, car_key):
   )
   conn.commit()
   conn.close()
-  await backup_database_to_owner()
 
 
 def get_user_cars_detailed(user_id):
@@ -287,8 +264,6 @@ CARS = {
 }
 car_keys = list(CARS.keys())
 
-# --- КЛАВИАТУРЫ ---
-
 
 def get_main_menu():
   return ReplyKeyboardMarkup(
@@ -389,7 +364,6 @@ def get_autosalon_inline(index: int):
       if "cost_stars" in car
       else "🛒 Купить эту тачку"
   )
-
   return InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -483,9 +457,6 @@ def get_admin_menu():
   )
 
 
-# --- ОБРАБОТЧИКИ ---
-
-
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
   get_user(message.from_user.id, message.from_user.username)
@@ -534,34 +505,23 @@ async def top_players_handler(message: Message):
     )
     top_rows = cursor.fetchall()
     conn.close()
-
     if not top_rows:
       await message.answer(
           "🏆 В базе данных пока нет ни одной записи игроков.",
           reply_markup=get_main_menu(),
       )
       return
-
     text = "🏆 Топ-10 авторитетов по бабосам:\n\n"
     for i, (u_name, money) in enumerate(top_rows, 1):
       medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
       name_display = f"@{u_name}" if u_name else "Бро"
       safe_money = money if money is not None else 0
       text += f"{medals} {name_display} — Баланс: ${safe_money:,}\n"
-
-    await message.answer(
-        text, parse_mode=None, reply_markup=get_main_menu()
-    )
-
+    await message.answer(text, parse_mode=None, reply_markup=get_main_menu())
   except Exception as e:
     await message.answer(
-        f"⚠️ Ошибка в топе: {e}",
-        parse_mode=None,
-        reply_markup=get_main_menu(),
+        f"⚠️ Ошибка в топе: {e}", parse_mode=None, reply_markup=get_main_menu()
     )
-
-
-# --- АДМИН-ПАНЕЛЬ И РАССЫЛКА ---
 
 
 @dp.message(F.text.startswith("/admin"))
@@ -573,7 +533,6 @@ async def admin_login_command(message: Message):
         parse_mode="Markdown",
     )
     return
-
   password = parts[1]
   if password == ADMIN_PASSWORD:
     admin_session.add(message.from_user.id)
@@ -587,9 +546,7 @@ async def admin_login_command(message: Message):
 @dp.message(F.text == "🚪 Выйти из админки")
 async def admin_logout(message: Message):
   admin_session.discard(message.from_user.id)
-  await message.answer(
-      "Админ-режим отключен.", reply_markup=get_main_menu()
-  )
+  await message.answer("Админ-режим отключен.", reply_markup=get_main_menu())
 
 
 @dp.message(F.text == "💸 Выдать бабло")
@@ -622,10 +579,10 @@ async def admin_withdraw_stars(message: Message):
   if message.from_user.id not in admin_session:
     return
   await message.answer(
-      "⭐ **Запрос на вывод звезд отправлен!**\n\n"
-      "Все донатные звезды (XTR), поступившие на баланс бота через инвойсы,"
-      " обрабатываются через платежную систему Telegram / ShuzaGram.\n"
-      "Проверьте @BotFather или панель управления вашим ботом для вывода на кошелек.",
+      "⭐ **Запрос на вывод звезд отправлен!**\n\nВсе донатные звезды (XTR),"
+      " поступившие на баланс бота через инвойсы, обрабатываются через"
+      " платежную систему Telegram / ShuzaGram.\nПроверьте @BotFather или"
+      " панель управления вашим ботом для вывода на кошелек.",
       reply_markup=get_admin_menu(),
   )
 
@@ -651,12 +608,9 @@ async def admin_prompt_broadcast(message: Message):
 )
 async def admin_process_action(message: Message):
   user_id = message.from_user.id
-
   if message.text == "⬅️ Назад":
     active_games.pop(user_id, None)
-    await message.answer(
-        "Рассылка отменена.", reply_markup=get_admin_menu()
-    )
+    await message.answer("Рассылка отменена.", reply_markup=get_admin_menu())
     return
 
   action_data = active_games.pop(user_id)
@@ -666,11 +620,9 @@ async def admin_process_action(message: Message):
     users = get_all_user_ids()
     success_count = 0
     fail_count = 0
-
     status_msg = await message.answer(
         f"⏳ Начинаю рассылку для {len(users)} участников..."
     )
-
     for uid in users:
       try:
         await message.send_copy(chat_id=uid)
@@ -678,11 +630,9 @@ async def admin_process_action(message: Message):
         await asyncio.sleep(0.05)
       except Exception:
         fail_count += 1
-
     await status_msg.edit_text(
-        f"📢 **Рассылка завершена!**\n\n"
-        f"✅ Успешно доставлено: {success_count}\n"
-        f"❌ Не удалось доставить: {fail_count}",
+        f"📢 **Рассылка завершена!**\n\n✅ Успешно доставлено:"
+        f" {success_count}\n❌ Не удалось доставить: {fail_count}",
         reply_markup=get_admin_menu(),
     )
     return
@@ -696,7 +646,6 @@ async def admin_process_action(message: Message):
 
   target_raw = parts[0].lstrip("@").lower()
   arg = parts[1]
-
   t_id = get_user_by_username_or_id(target_raw)
   if not t_id:
     await message.answer(
@@ -715,13 +664,11 @@ async def admin_process_action(message: Message):
     amount = int(arg)
     new_money = target_user["money"] + amount
     update_user_money_and_stats(t_id, money=new_money)
-    await backup_database_to_owner()
     await message.answer(
         f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
         f" Новый баланс: ${new_money:,}",
         reply_markup=get_admin_menu(),
     )
-
   elif action == "give_biz":
     if arg not in BUSINESSES:
       await message.answer(
@@ -737,32 +684,22 @@ async def admin_process_action(message: Message):
     )
 
 
-# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ АВТОСАЛОН ---
-
-
 async def show_car_page(message_or_callback, index=0, edit=True):
   global car_keys
   index = index % len(car_keys)
   key = car_keys[index]
   car = CARS[key]
-
   price_str = (
       f"⭐ **{car['cost_stars']} Звезд**"
       if "cost_stars" in car
       else f"**${car['cost']:,}**"
   )
-
   text = (
-      f"🚗 **Автосалон «У Палыча»**\n\n"
-      f"🚙 Модель: **{car['name']}**\n"
-      f"🏷 Редкость: **{car['rarity']}**\n"
-      f"⚡️ Макс. скорость: `{car['speed']}`\n"
-      f"💰 Цена: {price_str}\n\n"
-      f"📄 Чёткая тачка, бери не пожалеешь!"
+      f"🚗 **Автосалон «У Палыча»**\n\n🚙 Модель: **{car['name']}**\n🏷 Редкость:"
+      f" **{car['rarity']}**\n⚡️ Макс. скорость: `{car['speed']}`\n💰 Цена:"
+      f" {price_str}\n\n📄 Чёткая тачка, бери не пожалеешь!"
   )
-
   reply_markup = get_autosalon_inline(index)
-
   if edit and hasattr(message_or_callback, "message"):
     call = message_or_callback
     try:
@@ -784,19 +721,14 @@ async def autosalon_handler(message: Message):
   await show_car_page(message, index=0, edit=False)
 
 
-# --- ТЕКСТОВЫЙ ИНТЕРАКТИВНЫЙ ГАРАЖ ПО СЛОТАМ ---
-
-
 async def show_garage_page(callback, index=0):
   user_id = callback.from_user.id
   cars_list = get_user_cars_detailed(user_id)
-
   if not cars_list:
     await callback.answer(
         "Твой гараж пуст! Сначала купи тачку в автосалоне.", show_alert=True
     )
     return
-
   index = index % len(cars_list)
   db_id, key = cars_list[index]
   car = CARS.get(
@@ -811,25 +743,18 @@ async def show_garage_page(callback, index=0):
   sell_price = int(car["cost"] / 2) if "cost" in car and car["cost"] > 0 else 0
   slot_number = index + 1
   total_slots = len(cars_list)
-
   sell_str = (
       f"**${sell_price:,}** (50% от гос. цены)"
       if sell_price > 0
       else "Бесценно (Донат)"
   )
-
   text = (
-      f"🚙 **Твой гараж («У Палыча»)**\n\n"
-      f"🅿️ **Слот №{slot_number} из {total_slots}**\n"
-      f"🚗 Модель: **{car['name']}**\n"
-      f"🏷 Редкость: **{car['rarity']}**\n"
-      f"⚡️ Макс. скорость: `{car['speed']}`\n"
-      f"💵 Цена продажи этого слота: {sell_str}\n\n"
-      f"🔄 Листай слоты кнопками ниже:"
+      f"🚙 **Твой гараж («У Палыча»)**\n\n🅿️ **Слот №{slot_number} из"
+      f" {total_slots}**\n🚗 Модель: **{car['name']}**\n🏷 Редкость:"
+      f" **{car['rarity']}**\n⚡️ Макс. скорость: `{car['speed']}`\n💵 Цена продажи"
+      f" этого слота: {sell_str}\n\n🔄 Листай слоты кнопками ниже:"
   )
-
   reply_markup = get_garage_inline(index, db_id)
-
   try:
     await callback.message.edit_text(
         text, parse_mode="Markdown", reply_markup=reply_markup
@@ -843,7 +768,6 @@ async def show_garage_page(callback, index=0):
 async def autosalon_callback_handler(callback):
   data = callback.data
   global car_keys
-
   if data == "car_exit":
     await callback.message.delete()
     await callback.message.answer(
@@ -851,11 +775,9 @@ async def autosalon_callback_handler(callback):
     )
     await callback.answer()
     return
-
   if data == "garage_open":
     await show_garage_page(callback, index=0)
     return
-
   if data == "garage_to_shop":
     await show_car_page(callback, index=0, edit=True)
     return
@@ -872,7 +794,6 @@ async def autosalon_callback_handler(callback):
     key = car_keys[index]
     car = CARS[key]
     user = get_user(callback.from_user.id, callback.from_user.username)
-
     if "cost_stars" in car:
       prices = [LabeledPrice(label=f"🏎 {car['name']}", amount=car["cost_stars"])]
       await callback.message.answer_invoice(
@@ -886,7 +807,6 @@ async def autosalon_callback_handler(callback):
       )
       await callback.answer()
       return
-
     if user["money"] < car["cost"]:
       await callback.answer(
           f"Не хватает бабосов! Нужно ${car['cost']:,}, а у тебя"
@@ -894,11 +814,9 @@ async def autosalon_callback_handler(callback):
           show_alert=True,
       )
       return
-
     new_money = user["money"] - car["cost"]
     update_user_money_and_stats(user["user_id"], money=new_money)
     await add_user_car_and_backup(user["user_id"], key)
-
     await callback.answer(f"🎉 Успешно куплено: {car['name']}!", show_alert=True)
     await show_car_page(callback, index, edit=True)
 
@@ -908,7 +826,6 @@ async def successful_payment_handler(message: Message):
   user_id = message.from_user.id
   get_user(user_id, message.from_user.username)
   payload = message.successful_payment.invoice_payload
-
   if payload == "buy_vip_cartel":
     await add_user_business_and_backup(user_id, "vip_cartel")
     item_name = "Картель"
@@ -916,17 +833,6 @@ async def successful_payment_handler(message: Message):
     car_key = payload.replace("buy_car_", "")
     await add_user_car_and_backup(user_id, car_key)
     item_name = CARS.get(car_key, {"name": "Тачка"})["name"]
-
-  if OWNER_ID and user_id != OWNER_ID:
-    try:
-      await bot.send_message(
-          OWNER_ID,
-          f"👑 Внимание! @{message.from_user.username or user_id} купил"
-          f" {item_name} за звезды!",
-      )
-    except Exception:
-      pass
-
   await message.answer(
       f"👑 Оплата прошла успешно! **{item_name}** добавлена в твою"
       " коллекцию! 🔥",
@@ -940,7 +846,6 @@ async def garage_callback_handler(callback):
   user_id = callback.from_user.id
   parts = data.split("_")
   action = parts[1]
-
   if action == "exit":
     await callback.message.delete()
     await callback.message.answer(
@@ -948,50 +853,39 @@ async def garage_callback_handler(callback):
     )
     await callback.answer()
     return
-
   if action == "to":
     await show_car_page(callback, index=0, edit=True)
     return
-
   if action in ["prev", "next"]:
     index = int(parts[2])
     if action == "prev":
       await show_garage_page(callback, index - 1)
     elif action == "next":
       await show_garage_page(callback, index + 1)
-
   elif action == "sell":
     db_id = int(parts[2])
     index = int(parts[3])
     cars_list = get_user_cars_detailed(user_id)
-
     target_car = next((item for item in cars_list if item[0] == db_id), None)
     if not target_car:
       await callback.answer("Этот слот уже пуст!", show_alert=True)
       await show_garage_page(callback, index=0)
       return
-
     _, key = target_car
     car = CARS[key]
-
     if "cost_stars" in car:
       await callback.answer(
           "Донатные тачки нельзя продать за баксы!", show_alert=True
       )
       return
-
     sell_price = int(car["cost"] / 2)
-
     remove_car_by_db_id(db_id)
     user = get_user(user_id)
     new_money = user["money"] + sell_price
     update_user_money_and_stats(user_id, money=new_money)
-    await backup_database_to_owner()
-
     await callback.answer(
         f"💰 Слот продан! Выручено: ${sell_price:,}!", show_alert=True
     )
-
     updated_list = get_user_cars_detailed(user_id)
     if not updated_list:
       await callback.message.edit_text(
@@ -1013,9 +907,6 @@ async def garage_callback_handler(callback):
       )
     else:
       await show_garage_page(callback, index - 1)
-
-
-# --- ТЕМАТИЧЕСКИЕ МИНИ-ИГРЫ НА РАБОТАХ ---
 
 
 @dp.message(F.text == "💼 Работа")
@@ -1111,20 +1002,17 @@ async def process_job_choice(message: Message):
         "Сначала выбери работу в меню!", reply_markup=get_work_menu()
     )
     return
-
   game_data = active_games.pop(user_id)
   job_type = game_data["job"]
   correct_variant = game_data["correct"]
   user = get_user(user_id, message.from_user.username)
   choice = message.text
-
   prizes = {"ref": 250, "car": 600, "block": 1000, "fed": 1800}
   prize = prizes.get(job_type, 300)
 
   if choice == correct_variant:
     new_money = user["money"] + prize
     update_user_money_and_stats(user_id, money=new_money)
-    await backup_database_to_owner()
     await message.answer(
         f"🎯 Четкий расчет! Выбор ({choice}) оказался верным.\nУспех! Получено:"
         f" **+${prize:,}**! 💸\nБаланс: ${new_money:,}",
@@ -1137,9 +1025,6 @@ async def process_job_choice(message: Message):
         parse_mode="Markdown",
         reply_markup=get_work_menu(),
     )
-
-
-# --- КАЗИНО (Шанс победы 30%, поражения 70%) ---
 
 
 @dp.message(F.text == "🎰 Казино")
@@ -1169,12 +1054,10 @@ async def casino_select_game(message: Message):
 )
 async def casino_process_bet(message: Message):
   user_id = message.from_user.id
-
   if message.text == "⬅️ Назад":
     active_games.pop(user_id, None)
     await message.answer("Вышел из казино.", reply_markup=get_casino_menu())
     return
-
   if not message.text.isdigit():
     await message.answer(
         "⚠️ Эу, бро! Ставка должна быть обычной цифрой (например: `500`)."
@@ -1182,14 +1065,11 @@ async def casino_process_bet(message: Message):
         parse_mode="Markdown",
     )
     return
-
   bet_amount = int(message.text)
   user = get_user(user_id, message.from_user.username)
-
   if bet_amount <= 0:
     await message.answer("Ставка должна быть больше нуля, бро.")
     return
-
   if user["money"] < bet_amount:
     await message.answer(
         f"Эу! У тебя нет столько бабла. Твой баланс: ${user['money']:,}",
@@ -1197,16 +1077,12 @@ async def casino_process_bet(message: Message):
     )
     active_games.pop(user_id, None)
     return
-
   active_games.pop(user_id, None)
-
   win = random.choices([True, False], weights=[30, 70], k=1)[0]
-
   if win:
     payout = bet_amount
     new_money = user["money"] + payout
     update_user_money_and_stats(user_id, money=new_money)
-    await backup_database_to_owner()
     await message.answer(
         f"🎲 Удача на твоей стороне! Выиграл **+${payout:,}**! 💰\nБаланс:"
         f" ${new_money:,}",
@@ -1215,15 +1091,11 @@ async def casino_process_bet(message: Message):
   else:
     new_money = user["money"] - bet_amount
     update_user_money_and_stats(user_id, money=new_money)
-    await backup_database_to_owner()
     await message.answer(
         f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела...\nБаланс:"
         f" ${new_money:,}",
         reply_markup=get_casino_menu(),
     )
-
-
-# --- ПОКУПКА БИЗНЕСОВ ---
 
 
 @dp.message(F.text == "🏢 Бизнесы")
@@ -1253,7 +1125,6 @@ async def buy_business_in_cash(message: Message):
   }
   key = mapping.get(message.text)
   biz_info = BUSINESSES[key]
-
   if user["money"] < biz_info["cost"]:
     await message.answer(
         f"Не хватает бабосов! Нужно ${biz_info['cost']:,}, а у тебя"
@@ -1261,11 +1132,9 @@ async def buy_business_in_cash(message: Message):
         reply_markup=get_business_menu(),
     )
     return
-
   new_money = user["money"] - biz_info["cost"]
   update_user_money_and_stats(user.get("user_id"), money=new_money)
   await add_user_business_and_backup(user.get("user_id"), key)
-
   await message.answer(
       f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
       f" ${biz_info['income']:,}/час.\nБаланс: ${new_money:,}",
@@ -1299,11 +1168,9 @@ async def show_my_businesses(message: Message):
         reply_markup=get_business_menu(),
     )
     return
-
   from collections import Counter
 
   counts = Counter(user["businesses"])
-
   total_income = 0
   text = "🏢 **Твои владения:**\n\n"
   for key, count in counts.items():
@@ -1311,14 +1178,10 @@ async def show_my_businesses(message: Message):
     inc = b["income"] * count
     total_income += inc
     text += f"• {b['name']} (x{count}) — 💵 **${inc:,}/час**\n"
-
   text += f"\n📊 **Общий пассивный доход в час:** ${total_income:,}"
   await message.answer(
       text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_business_menu()
   )
-
-
-# --- МАГАЗИН ШМОТОК ---
 
 
 @dp.message(F.text == "🛒 Шмотки")
@@ -1334,19 +1197,16 @@ async def market_buy_handler(message: Message):
   user = get_user(message.from_user.id, message.from_user.username)
   is_vetements = "VETEMENTS" in message.text
   cost = 500 if is_vetements else 300
-
   if user["money"] < cost:
     await message.answer(
         f"Не хватает бабосов! У тебя ${user['money']:,}.",
         reply_markup=get_market_menu(),
     )
     return
-
   new_money = user["money"] - cost
   if is_vetements:
     new_rank = "Авторитет в VETEMENTS 🧥"
     update_user_money_and_stats(user["user_id"], money=new_money, rank=new_rank)
-    await backup_database_to_owner()
     await message.answer(
         f"Куплен **VETEMENTS**! Ранг: **{new_rank}** 🔥\nБаланс:"
         f" ${new_money:,}",
@@ -1357,7 +1217,6 @@ async def market_buy_handler(message: Message):
     update_user_money_and_stats(
         user["user_id"], money=new_money, defense=new_def
     )
-    await backup_database_to_owner()
     await message.answer(
         f"Защита прокачана! Теперь защита: **{new_def}** 🛡\nБаланс:"
         f" ${new_money:,}",
@@ -1373,26 +1232,21 @@ async def echo_handler(message: Message):
   )
 
 
-# --- ФОНОВЫЙ ЕЖЕЧАСНЫЙ ДОХОД ОТ БИЗНЕСОВ ---
 async def hourly_business_income():
   while True:
-    await asyncio.sleep(3600)  # Ждем ровно 1 час
+    await asyncio.sleep(3600)
     try:
       conn = sqlite3.connect(DB_FILE)
       cursor = conn.cursor()
-
       cursor.execute("SELECT DISTINCT user_id FROM businesses")
       users_with_biz = cursor.fetchall()
-
       for (u_id,) in users_with_biz:
         cursor.execute(
             "SELECT biz_key FROM businesses WHERE user_id = ?", (u_id,)
         )
         b_keys = [b[0] for b in cursor.fetchall()]
-
         if not b_keys:
           continue
-
         from collections import Counter
 
         counts = Counter(b_keys)
@@ -1400,14 +1254,12 @@ async def hourly_business_income():
         for b_key, count in counts.items():
           if b_key in BUSINESSES:
             total_income += BUSINESSES[b_key]["income"] * count
-
         if total_income > 0:
           cursor.execute(
               "UPDATE users SET money = money + ? WHERE user_id = ?",
               (total_income, u_id),
           )
           conn.commit()
-
           try:
             await bot.send_message(
                 u_id,
@@ -1417,14 +1269,11 @@ async def hourly_business_income():
             )
           except Exception:
             pass
-
       conn.close()
-      print("[INFO] Часовой пассивный доход успешно начислен всем игрокам.")
     except Exception as e:
-      print(f"[ERROR] Ошибка начисления пассивного дохода: {e}")
+      print(f"[ERROR] {e}")
 
 
-# --- ВЕБХУКИ ДЛЯ RENDER И SHUZAGRAM ---
 WEBHOOK_PATH = f"/bot/{TOKEN}"
 
 
@@ -1435,48 +1284,33 @@ async def handle_webhook(request):
     await dp.feed_update(bot=bot, update=telegram_update)
     return web.Response(text="OK")
   except Exception as e:
-    print(f"Ошибка обработки вебхука: {e}")
+    print(f"Ошибка вебхука: {e}")
     return web.Response(text="Error", status=500)
 
 
 async def handle_index(request):
-  return web.Response(text="Бот Бандит на связи и работает через вебхуки!")
+  return web.Response(text="Бот Бандит активен!")
 
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита через вебхуки...")
-
-  # Инициализируем таблицы базы данных
+  print("Запуск сервера...")
   init_db()
-
-  # Запускаем часовой доход бизнесов
   asyncio.create_task(hourly_business_income())
 
   app = web.Application()
   app.router.add_get("/", handle_index)
   app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-  # Устанавливаем вебхук на Render
-  render_url = os.environ.get("RENDER_EXTERNAL_URL")
-  if render_url:
-    webhook_url = f"{render_url}{WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url)
-    print(f"Вебхук успешно установлен: {webhook_url}")
-
+  # Убираем вызов bot.set_webhook при старте, чтобы бот не делал сетевых запросов к API до запуска сервера
   runner = web.AppRunner(app)
   await runner.setup()
   port = int(os.environ.get("PORT", 10000))
   site = web.TCPSite(runner, "0.0.0.0", port)
   await site.start()
-  print(f"Веб-сервер запущен на порту {port}")
+  print(f"Сервер слушает порт {port}")
 
-  # Бесконечно держим приложение запущенным и корректно закрываем сессию при выходе
-  try:
-    await asyncio.Event().wait()
-  finally:
-    await bot.session.close()
-    await runner.cleanup()
+  await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
