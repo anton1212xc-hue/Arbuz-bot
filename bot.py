@@ -22,7 +22,7 @@ from aiogram.types import (
 )
 
 # Токен из бота ShuzaGram BotFather
-TOKEN = "1780243414:LOf-u_T8aBdyjBTAnE4cG1a_sr58EVA4bKa"
+TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
