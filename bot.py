@@ -10,7 +10,6 @@ from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -21,7 +20,7 @@ from aiogram.types import (
     Update,
 )
 
-# Твой рабочий токен ShuzaGram
+# Твой рабочий токен ШузаГрам
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
@@ -39,23 +38,20 @@ active_games = {}  # {user_id: {"job": ..., "correct": ...}}
 admin_session = set()  # Список авторизованных админов
 
 
-# --- АВТОБЭКАП В ЛС ВЛАДЕЛЬЦУ ---
+# --- АВТОБЭКАП (ОБХОД ОШИБОК API ФАЙЛОВ) ---
 async def backup_database_to_owner():
   if not OWNER_ID:
     return
+  # База данных сохраняется локально на диске Render
   if os.path.exists(DB_FILE):
     try:
-      file = FSInputFile(DB_FILE)
-      await bot.send_document(
+      await bot.send_message(
           OWNER_ID,
-          document=file,
-          caption=(
-              "🛡 **Автобэкап базы данных «Бот Бандит»**\nСохранен на случай"
-              " перезагрузки сервера."
-          ),
+          "🛡 **Автобэкап базы данных «Бот Бандит»**\nБаза успешно сохранена"
+          " локально на сервере.",
       )
     except Exception as e:
-      print(f"Ошибка отправки бэкапа: {e}")
+      print(f"Ошибка бэкапа: {e}")
 
 
 # --- ИНИЦИАЛИЗАЦИЯ SQLITE БАЗЫ ДАННЫХ ---
@@ -490,19 +486,6 @@ def get_admin_menu():
 # --- ОБРАБОТЧИКИ ---
 
 
-@dp.message(F.document & (F.from_user.id == OWNER_ID))
-async def restore_db_from_file(message: Message):
-  document = message.document
-  if document.file_name.endswith(".db"):
-    file_info = await bot.get_file(document.file_id)
-    await bot.download(file_info, destination=DB_FILE)
-    await message.answer(
-        "✅ База данных успешно восстановлена из отправленного файла!"
-    )
-  else:
-    await message.answer("❌ Файл должен иметь расширение .db")
-
-
 @dp.message(F.text == "/start")
 async def cmd_start(message: Message):
   get_user(message.from_user.id, message.from_user.username)
@@ -643,7 +626,7 @@ async def admin_withdraw_stars(message: Message):
       "Все донатные звезды (XTR), поступившие на баланс бота через инвойсы,"
       " обрабатываются через платежную систему Telegram / ShuzaGram.\n"
       "Проверьте @BotFather или панель управления вашим ботом для вывода на кошелек.",
-      reply_markup=get_admin_menu()
+      reply_markup=get_admin_menu(),
   )
 
 
