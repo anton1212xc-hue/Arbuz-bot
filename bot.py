@@ -1280,11 +1280,12 @@ WEBHOOK_PATH = f"/bot/{TOKEN}"
 async def handle_webhook(request):
   try:
     data = await request.json()
+    print(f"[DEBUG] Получен апдейт от сервера: {data}")  # Логируем входящие
     telegram_update = Update(**data)
     await dp.feed_update(bot=bot, update=telegram_update)
     return web.Response(text="OK")
   except Exception as e:
-    print(f"Ошибка вебхука: {e}")
+    print(f"[ERROR] Ошибка вебхука: {e}")
     return web.Response(text="Error", status=500)
 
 
@@ -1302,15 +1303,16 @@ async def main():
   app.router.add_get("/", handle_index)
   app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-  # Регистрация вебхука с защитой от ошибок
+  # Регистрируем вебхук и выводим статус в лог
   render_url = os.environ.get("RENDER_EXTERNAL_URL")
   if render_url:
     webhook_url = f"{render_url}{WEBHOOK_PATH}"
+    print(f"Пытаюсь установить вебхук на: {webhook_url}")
     try:
       await bot.set_webhook(webhook_url)
-      print(f"Вебхук успешно установлен: {webhook_url}")
+      print("✅ Вебхук успешно установлен через API!")
     except Exception as e:
-      print(f"Не удалось установить вебхук: {e}")
+      print(f"❌ Ошибка установки вебхука: {e}")
 
   runner = web.AppRunner(app)
   await runner.setup()
