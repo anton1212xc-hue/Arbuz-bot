@@ -18,6 +18,7 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
     ReplyKeyboardMarkup,
+    Update,
 )
 
 # Токен из бота ShuzaGram BotFather
@@ -1411,7 +1412,6 @@ async def hourly_business_income():
 
         from collections import Counter
 
-     
         counts = Counter(b_keys)
         total_income = 0
         for b_key, count in counts.items():
@@ -1446,10 +1446,6 @@ WEBHOOK_PATH = f"/bot/{TOKEN}"
 
 
 async def handle_webhook(request):
-  import json
-
-  from aiogram.types import Update
-
   try:
     data = await request.json()
     telegram_update = Update(**data)
@@ -1478,17 +1474,12 @@ async def main():
   app.router.add_get("/", handle_index)
   app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-  # Устанавливаем вебхук на Render (используем RENDER_EXTERNAL_URL)
+  # Устанавливаем вебхук на Render
   render_url = os.environ.get("RENDER_EXTERNAL_URL")
   if render_url:
     webhook_url = f"{render_url}{WEBHOOK_PATH}"
     await bot.set_webhook(webhook_url)
     print(f"Вебхук успешно установлен: {webhook_url}")
-  else:
-    print(
-        "[WARNING] RENDER_EXTERNAL_URL не найден, вебхук может не установиться"
-        " автоматически."
-    )
 
   runner = web.AppRunner(app)
   await runner.setup()
@@ -1497,8 +1488,8 @@ async def main():
   await site.start()
   print(f"Веб-сервер запущен на порту {port}")
 
-  # Держим приложение запущенным
-  await asyncio.Event().wait()
+  # Запускаем поллинг (или держим поток активным для приема апдейтов)
+  await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
