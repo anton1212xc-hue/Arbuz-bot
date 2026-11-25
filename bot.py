@@ -22,7 +22,7 @@ TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
 OWNER_ID = 1780243411
 ADMIN_PASSWORD = "gver1212"
 
-# Исправленная настройка кастомного сервера для ShuzaGram
+# Настройка кастомного сервера для ShuzaGram
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
 session = AiohttpSession(api=custom_server)
 
@@ -1278,13 +1278,7 @@ async def main():
   asyncio.create_task(hourly_business_income())
 
   try:
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("🧹 Старый вебхук успешно сброшен.")
-  except Exception as e:
-    print(f"⚠️ Не удалось сбросить вебхук: {e}")
-
-  try:
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, handle_signals=False)
   finally:
     await bot.session.close()
 
