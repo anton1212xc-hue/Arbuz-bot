@@ -1302,7 +1302,16 @@ async def main():
   app.router.add_get("/", handle_index)
   app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-  # Убираем вызов bot.set_webhook при старте, чтобы бот не делал сетевых запросов к API до запуска сервера
+  # Регистрация вебхука с защитой от ошибок
+  render_url = os.environ.get("RENDER_EXTERNAL_URL")
+  if render_url:
+    webhook_url = f"{render_url}{WEBHOOK_PATH}"
+    try:
+      await bot.set_webhook(webhook_url)
+      print(f"Вебхук успешно установлен: {webhook_url}")
+    except Exception as e:
+      print(f"Не удалось установить вебхук: {e}")
+
   runner = web.AppRunner(app)
   await runner.setup()
   port = int(os.environ.get("PORT", 10000))
@@ -1310,7 +1319,11 @@ async def main():
   await site.start()
   print(f"Сервер слушает порт {port}")
 
-  await asyncio.Event().wait()
+  try:
+    await asyncio.Event().wait()
+  finally:
+    await bot.session.close()
+    await runner.cleanup()
 
 
 if __name__ == "__main__":
