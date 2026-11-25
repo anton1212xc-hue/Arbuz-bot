@@ -26,8 +26,8 @@ TOKEN = "1780243414:1GSEOqcNmxiSHWOyR_P0e68PEzz6N7_OYkt"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
-# Настройка кастомного сервера для ShuzaGram в aiogram 3.x
-custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
+# Настройка кастомного сервера для ShuzaGram с учетом префикса /bot в aiogram 3.x
+custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com/bot")
 session = AiohttpSession(api=custom_server)
 
 bot = Bot(
@@ -480,7 +480,6 @@ def get_market_menu():
   )
 
 
-# --- ОБНОВЛЕННАЯ АДМИН-ПАНЕЛЬ С КНОПКОЙ ВЫВОДА ЗВЕЗД ---
 def get_admin_menu():
   return ReplyKeyboardMarkup(
       keyboard=[
@@ -639,20 +638,13 @@ async def admin_prompt_business(message: Message):
 async def admin_withdraw_stars(message: Message):
   if message.from_user.id not in admin_session:
     return
-  
-  # Здесь бот пытается вызвать метод вывода/перевода звезд или информирует владельца
-  try:
-    # На некоторых кастомных серверах Telegram API доступен метод трансфера звезд, 
-    # либо отправляем отчет владельцу о запросе вывода.
-    await message.answer(
-        "⭐ **Запрос на вывод звезд отправлен!**\n\n"
-        "Все донатные звезды (XTR), поступившие на баланс бота через инвойсы,"
-        " обрабатываются через платежную систему Telegram / ShuzaGram.\n"
-        "Проверьте @BotFather или панель управления вашим ботом для вывода на кошелек.",
-        reply_markup=get_admin_menu()
-    )
-  except Exception as e:
-    await message.answer(f"❌ Ошибка при выводе звезд: {e}", reply_markup=get_admin_menu())
+  await message.answer(
+      "⭐ **Запрос на вывод звезд отправлен!**\n\n"
+      "Все донатные звезды (XTR), поступившие на баланс бота через инвойсы,"
+      " обрабатываются через платежную систему Telegram / ShuzaGram.\n"
+      "Проверьте @BotFather или панель управления вашим ботом для вывода на кошелек.",
+      reply_markup=get_admin_menu()
+  )
 
 
 @dp.message(F.text == "📢 Сделать рассылку")
@@ -972,7 +964,7 @@ async def garage_callback_handler(callback):
     await callback.answer()
     return
 
-  if action == "to":  # gar_to_shop
+  if action == "to":
     await show_car_page(callback, index=0, edit=True)
     return
 
@@ -983,7 +975,7 @@ async def garage_callback_handler(callback):
     elif action == "next":
       await show_garage_page(callback, index + 1)
 
-  elif action == "sell":  # gar_sell_{db_id}_{index}
+  elif action == "sell":
     db_id = int(parts[2])
     index = int(parts[3])
     cars_list = get_user_cars_detailed(user_id)
