@@ -20,12 +20,12 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Новый токен для ШузаГрам
+# Токен из бота ShuzaGram BotFather
 TOKEN = "1780243414:LOf-u_T8aBdyjBTAnE4cG1a_sr58EVA4bKa"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
-# Стабильная настройка кастомного сервера для ShuzaGram
+# Настройка кастомного сервера для ShuzaGram
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com/bot")
 session = AiohttpSession(api=custom_server)
 
@@ -1411,6 +1411,7 @@ async def hourly_business_income():
 
         from collections import Counter
 
+     
         counts = Counter(b_keys)
         total_income = 0
         for b_key, count in counts.items():
@@ -1440,14 +1441,55 @@ async def hourly_business_income():
       print(f"[ERROR] Ошибка начисления пассивного дохода: {e}")
 
 
-# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
-async def handle(request):
-  return web.Response(text="Бот Бандит на связи и работает!")
+# --- ВЕБХУКИ ДЛЯ RENDER И SHUZAGRAM ---
+WEBHOOK_PATH = f"/bot/{TOKEN}"
 
 
-async def start_web_server():
+async def handle_webhook(request):
+  import json
+
+  from aiogram.types import Update
+
+  try:
+    data = await request.json()
+    telegram_update = Update(**data)
+    await dp.feed_update(bot=bot, update=telegram_update)
+    return web.Response(text="OK")
+  except Exception as e:
+    print(f"Ошибка обработки вебхука: {e}")
+    return web.Response(text="Error", status=500)
+
+
+async def handle_index(request):
+  return web.Response(text="Бот Бандит на связи и работает через вебхуки!")
+
+
+async def main():
+  logging.basicConfig(level=logging.INFO)
+  print("Запуск бота бандита через вебхуки...")
+
+  # Инициализируем таблицы базы данных
+  init_db()
+
+  # Запускаем часовой доход бизнесов
+  asyncio.create_task(hourly_business_income())
+
   app = web.Application()
-  app.router.add_get("/", handle)
+  app.router.add_get("/", handle_index)
+  app.router.add_post(WEBHOOK_PATH, handle_webhook)
+
+  # Устанавливаем вебхук на Render (используем RENDER_EXTERNAL_URL)
+  render_url = os.environ.get("RENDER_EXTERNAL_URL")
+  if render_url:
+    webhook_url = f"{render_url}{WEBHOOK_PATH}"
+    await bot.set_webhook(webhook_url)
+    print(f"Вебхук успешно установлен: {webhook_url}")
+  else:
+    print(
+        "[WARNING] RENDER_EXTERNAL_URL не найден, вебхук может не установиться"
+        " автоматически."
+    )
+
   runner = web.AppRunner(app)
   await runner.setup()
   port = int(os.environ.get("PORT", 10000))
@@ -1455,20 +1497,8 @@ async def start_web_server():
   await site.start()
   print(f"Веб-сервер запущен на порту {port}")
 
-
-async def main():
-  logging.basicConfig(level=logging.INFO)
-  print("Запуск бота бандита...")
-
-  # Инициализируем таблицы базы данных
-  init_db()
-
-  # Запускаем локальный веб-сервер и часовой доход бизнесов
-  asyncio.create_task(start_web_server())
-  asyncio.create_task(hourly_business_income())
-
-  await bot.delete_webhook(drop_pending_updates=True)
-  await dp.start_polling(bot)
+  # Держим приложение запущенным
+  await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
