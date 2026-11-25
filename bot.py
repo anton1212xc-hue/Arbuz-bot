@@ -1437,23 +1437,9 @@ async def hourly_business_income():
       print(f"[ERROR] Ошибка начисления пассивного дохода: {e}")
 
 
-# --- ВЕБ-СЕРВЕР И САМОПИНГ ДЛЯ RENDER ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER ---
 async def handle(request):
   return web.Response(text="Бот Бандит на связи и работает!")
-
-
-async def keep_alive():
-  render_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:10000")
-  while True:
-    await asyncio.sleep(300)
-    try:
-      import aiohttp
-
-      async with aiohttp.ClientSession() as session:
-        async with session.get(render_url) as resp:
-          print(f"Пинг сервера для поддержания активности: статус {resp.status}")
-    except Exception as e:
-      print(f"Ошибка пинга: {e}")
 
 
 async def start_web_server():
@@ -1474,9 +1460,8 @@ async def main():
   # Инициализируем таблицы базы данных
   init_db()
 
-  # Запускаем веб-сервер, фоновый самопинг и часовой доход бизнесов
+  # Запускаем локальный веб-сервер и часовой доход бизнесов
   asyncio.create_task(start_web_server())
-  asyncio.create_task(keep_alive())
   asyncio.create_task(hourly_business_income())
 
   await bot.delete_webhook(drop_pending_updates=True)
