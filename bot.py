@@ -16,7 +16,6 @@ active_games = {}
 admin_session = set()
 ADMIN_PASSWORD = "gver1212"
 
-# Токены берутся из переменных окружения Render (GitHub заблокирует код, если написать их тут)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
@@ -564,16 +563,27 @@ def process_message(message):
       if text.isdigit():
         stars_amount = int(text)
         try:
-          send_message(
-              chat_id,
-              f"⭐ Успешно выведено **{stars_amount} звезд** на аккаунт"
-              " **@media**!",
-              reply_markup=get_admin_menu(),
-          )
+          payload = {"username": "media", "amount": stars_amount}
+          r = requests.post(URL + "transferStars", json=payload, timeout=10)
+          res_data = r.json()
+
+          if r.status_code == 200 and res_data.get("ok"):
+            send_message(
+                chat_id,
+                f"⭐ Успешно выведено **{stars_amount} звезд** на аккаунт"
+                " **@media**!",
+                reply_markup=get_admin_menu(),
+            )
+          else:
+            send_message(
+                chat_id,
+                f"⚠️ Ответ от сервера звёзд: {res_data.get('description', 'Запрос отправлен')}",
+                reply_markup=get_admin_menu(),
+            )
         except Exception as e:
           send_message(
               chat_id,
-              f"❌ Ошибка вывода звезд: {e}",
+              f"❌ Ошибка запроса к API звезд: {e}",
               reply_markup=get_admin_menu(),
           )
         return
@@ -1057,7 +1067,7 @@ def hourly_income_loop():
         conn.close()
       async_sync_db()
     except Exception as e:
-      print(f"[INCOME ERROR] {e}")
+      print(f"[INCOMEEROR] {e}")
 
 
 def main():
