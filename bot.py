@@ -1,38 +1,18 @@
-import asyncio
-import logging
+import json
 import random
 import sqlite3
-from aiogram import Bot, Dispatcher, F
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.client.telegram import TelegramAPIServer
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    LabeledPrice,
-    Message,
-    PreCheckoutQuery,
-    ReplyKeyboardMarkup,
-)
+import threading
+import time
+import requests
 
-# Твой актуальный токен ШузаГрам из BotFather
+# Твой токен ШузаГрам
 TOKEN = "1780243414:ijZnfeJtqAyNrk1o54ZTMOg24goyyOJl14y"
-OWNER_ID = 1780243411
-ADMIN_PASSWORD = "gver1212"
-
-# Настройка кастомного сервера для ShuzaGram
-custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com")
-session = AiohttpSession(api=custom_server)
-
-bot = Bot(token=TOKEN, session=session)
-dp = Dispatcher(storage=MemoryStorage())
+URL = f"https://api.shuzagram.com/bot{TOKEN}/"
 
 DB_FILE = "database.db"
-
 active_games = {}
 admin_session = set()
+ADMIN_PASSWORD = "gver1212"
 
 
 def init_db():
@@ -65,6 +45,166 @@ def init_db():
     """)
   conn.commit()
   conn.close()
+
+
+def send_message(chat_id, text, reply_markup=None, parse_mode="Markdown"):
+  data = {"chat_id": chat_id, "text": text}
+  if reply_markup:
+    data["reply_markup"] = json.dumps(reply_markup)
+  if parse_mode:
+    data["parse_mode"] = parse_mode
+  try:
+    requests.post(URL + "sendMessage", json=data, timeout=10)
+  except Exception as e:
+    print(f"[ERROR send_message] {e}")
+
+
+def edit_message_text(chat_id, message_id, text, reply_markup=None):
+  data = {
+      "chat_id": chat_id,
+      "message_id": message_id,
+      "text": text,
+      "parse_mode": "Markdown",
+  }
+  if reply_markup:
+    data["reply_markup"] = json.dumps(reply_markup)
+  try:
+    requests.post(URL + "editMessageText", json=data, timeout=10)
+  except Exception as e:
+    print(f"[ERROR edit_message] {e}")
+
+
+def answer_callback_query(callback_query_id, text=None, show_alert=False):
+  data = {
+      "callback_query_id": callback_query_id,
+      "show_alert": show_alert,
+  }
+  if text:
+    data["text"] = text
+  try:
+    requests.post(URL + "answerCallbackQuery", json=data, timeout=10)
+  except Exception as e:
+    print(f"[ERROR answer_callback] {e}")
+
+
+BUSINESSES = {
+    "shaurma": {"name": "🌭 Ларек с шаурмой", "cost": 5000, "income": 500},
+    "carwash": {"name": "🚗 Автомойка", "cost": 25000, "income": 2500},
+    "club": {"name": "💎 Ночной клуб", "cost": 100000, "income": 10000},
+    "casino_biz": {
+        "name": "🎰 Подпольное казино",
+        "cost": 500000,
+        "income": 50000,
+    },
+    "vip_cartel": {"name": "👑 Картель", "cost": 0, "income": 500000},
+}
+
+CARS = {
+    "vaz": {
+        "name": "🚗 ВАЗ 2107 (Пуд соли)",
+        "cost": 15000,
+        "speed": "160 км/ч",
+        "rarity": "🟢 Развалюха",
+    },
+    "bmw_e34": {
+        "name": "🏎 BMW E34 (Бумер)",
+        "cost": 80000,
+        "speed": "240 км/ч",
+        "rarity": "🔵 Элегантная",
+    },
+    "gelik": {
+        "name": "🚙 Mercedes G-Class (Гелик)",
+        "cost": 350000,
+        "speed": "220 км/ч",
+        "rarity": "🟣 Спорткар",
+    },
+    "lamborghini": {
+        "name": "🏎 Lamborghini Huracan",
+        "cost": 1200000,
+        "speed": "325 км/ч",
+        "rarity": "🟣 Спорткар",
+    },
+    "rolls_royce": {
+        "name": "🚙 Rolls-Royce Cullinan",
+        "cost": 7500000,
+        "speed": "250 км/ч",
+        "rarity": "🟡 Премиум",
+    },
+    "bugatti_divo": {
+        "name": "🏎 Bugatti Divo",
+        "cost": 15000000,
+        "speed": "380 км/ч",
+        "rarity": "👑 Ликвид (Донат)",
+    },
+}
+car_keys = list(CARS.keys())
+
+
+def get_main_menu():
+  return {
+      "keyboard": [
+          [{"text": "👤 Профиль"}, {"text": "🏆 Топ бандюков"}],
+          [{"text": "💼 Работа"}, {"text": "🏢 Бизнесы"}],
+          [{"text": "🚗 Автосалон"}, {"text": "🎰 Казино"}],
+          [{"text": "🛒 Шмотки"}],
+      ],
+      "resize_keyboard": True,
+  }
+
+
+def get_work_menu():
+  return {
+      "keyboard": [
+          [{"text": "🤝 Раскидать рефки"}, {"text": "🚕 Угон тачки"}],
+          [{"text": "🧱 Стрелка за блок"}, {"text": "👮 Сходняк"}],
+          [{"text": "⬅️ Назад"}],
+      ],
+      "resize_keyboard": True,
+  }
+
+
+def get_business_menu():
+  return {
+      "keyboard": [
+          [{"text": "🌭 Шаурма ($5k)"}, {"text": "🚗 Автомойка ($25k)"}],
+          [{"text": "💎 Клуб ($100k)"}, {"text": "🎰 Казино ($500k)"}],
+          [{"text": "💼 Мои бизнесы"}, {"text": "⬅️ Назад"}],
+      ],
+      "resize_keyboard": True,
+  }
+
+
+def get_casino_menu():
+  return {
+      "keyboard": [
+          [{"text": "🎲 Сыграть в кости"}, {"text": "🃏 Сыграть в очко"}],
+          [{"text": "⬅️ Назад"}],
+      ],
+      "resize_keyboard": True,
+  }
+
+
+def get_market_menu():
+  return {
+      "keyboard": [
+          [
+              {"text": "👕 Шмотка VETEMENTS ($500)"},
+              {"text": "🛡 Прокачать защиту ($300)"},
+          ],
+          [{"text": "⬅️ Назад"}],
+      ],
+      "resize_keyboard": True,
+  }
+
+
+def get_admin_menu():
+  return {
+      "keyboard": [
+          [{"text": "💸 Выдать бабло"}, {"text": "🏢 Выдать бизнес"}],
+          [{"text": "📢 Сделать рассылку"}, {"text": "🚪 Выйти из админки"}],
+      ],
+      "resize_keyboard": True,
+  }
 
 
 def get_user(user_id, username=None):
@@ -135,7 +275,7 @@ def update_user_money_and_stats(
   conn.close()
 
 
-async def add_user_business_and_backup(user_id, biz_key):
+def add_user_business(user_id, biz_key):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute(
@@ -146,7 +286,7 @@ async def add_user_business_and_backup(user_id, biz_key):
   conn.close()
 
 
-async def add_user_car_and_backup(user_id, car_key):
+def add_user_car(user_id, car_key):
   conn = sqlite3.connect(DB_FILE)
   cursor = conn.cursor()
   cursor.execute(
@@ -198,532 +338,73 @@ def get_user_by_username_or_id(target_raw):
   return row[0] if row else None
 
 
-BUSINESSES = {
-    "shaurma": {"name": "🌭 Ларек с шаурмой", "cost": 5000, "income": 500},
-    "carwash": {"name": "🚗 Автомойка", "cost": 25000, "income": 2500},
-    "club": {"name": "💎 Ночной клуб", "cost": 100000, "income": 10000},
-    "casino_biz": {
-        "name": "🎰 Подпольное казино",
-        "cost": 500000,
-        "income": 50000,
-    },
-    "vip_cartel": {
-        "name": "👑 Картель (За звезды)",
-        "cost_stars": 250,
-        "income": 500000,
-    },
-}
-
-CARS = {
-    "vaz": {
-        "name": "🚗 ВАЗ 2107 (Пуд соли)",
-        "cost": 15000,
-        "speed": "160 км/ч",
-        "rarity": "🟢 Развалюха",
-    },
-    "bmw_e34": {
-        "name": "🏎 BMW E34 (Бумер)",
-        "cost": 80000,
-        "speed": "240 км/ч",
-        "rarity": "🔵 Элегантная",
-    },
-    "gelik": {
-        "name": "🚙 Mercedes G-Class (Гелик)",
-        "cost": 350000,
-        "speed": "220 км/ч",
-        "rarity": "🟣 Спорткар",
-    },
-    "lamborghini": {
-        "name": "🏎 Lamborghini Huracan",
-        "cost": 1200000,
-        "speed": "325 км/ч",
-        "rarity": "🟣 Спорткар",
-    },
-    "rolls_royce": {
-        "name": "🚙 Rolls-Royce Cullinan",
-        "cost": 7500000,
-        "speed": "250 км/ч",
-        "rarity": "🟡 Премиум",
-    },
-    "bugatti_divo": {
-        "name": "🏎 Bugatti Divo",
-        "cost": 15000000,
-        "speed": "380 км/ч",
-        "rarity": "👑 Ликвид (Донат)",
-    },
-    "jesko": {
-        "name": "🏎 Koenigsegg Jesko",
-        "cost_stars": 300,
-        "cost": 0,
-        "speed": "480 км/ч",
-        "rarity": "👑 Ликвид (Донат)",
-    },
-}
-car_keys = list(CARS.keys())
-
-
-def get_main_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="👤 Профиль"), KeyboardButton(text="🏆 Топ бандюков")],
-          [KeyboardButton(text="💼 Работа"), KeyboardButton(text="🏢 Бизнесы")],
-          [KeyboardButton(text="🚗 Автосалон"), KeyboardButton(text="🎰 Казино")],
-          [KeyboardButton(text="🛒 Шмотки")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_work_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="🤝 Раскидать рефки"), KeyboardButton(text="🚕 Угон тачки")],
-          [KeyboardButton(text="🧱 Стрелка за блок"), KeyboardButton(text="👮 Сходняк")],
-          [KeyboardButton(text="⬅️ Назад")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_ref_keyboard():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="💬 Спам в ЛС"),
-              KeyboardButton(text="📢 Пост в чате"),
-              KeyboardButton(text="🚪 Зайти в комменты"),
-          ],
-          [KeyboardButton(text="❌ Слинять")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_car_keyboard():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="🔴 Красный провод"),
-              KeyboardButton(text="🔵 Синий провод"),
-              KeyboardButton(text="🟢 Зеленый провод"),
-          ],
-          [KeyboardButton(text="❌ Слинять")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_block_keyboard():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="🛡 Сесть за укрытие"),
-              KeyboardButton(text="💥 Идти в лобовую"),
-              KeyboardButton(text="🏃 Обойти с фланга"),
-          ],
-          [KeyboardButton(text="❌ Слинять")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_fed_keyboard():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="💼 Дать на лапу"),
-              KeyboardButton(text="🗣 Качать права"),
-              KeyboardButton(text="🤝 Порешать по понятиям"),
-          ],
-          [KeyboardButton(text="❌ Слинять")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_business_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="🌭 Шаурма ($5k)"), KeyboardButton(text="🚗 Автомойка ($25k)")],
-          [KeyboardButton(text="💎 Клуб ($100k)"), KeyboardButton(text="🎰 Казино ($500k)")],
-          [KeyboardButton(text="👑 Картель (250 ⭐)")],
-          [KeyboardButton(text="💼 Мои бизнесы"), KeyboardButton(text="⬅️ Назад")],
-      ],
-      resize_keyboard=True,
-  )
-
-
+# Генерация клавиатур для автосалона и гаража
 def get_autosalon_inline(index: int):
   key = car_keys[index]
   car = CARS[key]
-  buy_text = (
-      f"⭐ Купить за {car['cost_stars']} звезд"
-      if "cost_stars" in car
-      else "🛒 Купить эту тачку"
-  )
-  return InlineKeyboardMarkup(
-      inline_keyboard=[
+  return {
+      "inline_keyboard": [
           [
-              InlineKeyboardButton(
-                  text="⬅️ Назад", callback_data=f"car_prev_{index}"
-              ),
-              InlineKeyboardButton(
-                  text="➡️ Вперед", callback_data=f"car_next_{index}"
-              ),
+              {"text": "⬅️ Назад", "callback_data": f"car_prev_{index}"},
+              {"text": "➡️ Вперед", "callback_data": f"car_next_{index}"},
           ],
+          [{"text": "🛒 Купить эту тачку", "callback_data": f"car_buy_{index}"}],
           [
-              InlineKeyboardButton(
-                  text=buy_text, callback_data=f"car_buy_{index}"
-              )
-          ],
-          [
-              InlineKeyboardButton(
-                  text="🚙 Мой гараж", callback_data="garage_open"
-              ),
-              InlineKeyboardButton(
-                  text="❌ Выйти в меню", callback_data="car_exit"
-              ),
+              {"text": "🚙 Мой гараж", "callback_data": "garage_open"},
+              {"text": "❌ Выйти в меню", "callback_data": "car_exit"},
           ],
       ]
-  )
+  }
 
 
 def get_garage_inline(index: int, db_id: int):
-  return InlineKeyboardMarkup(
-      inline_keyboard=[
+  return {
+      "inline_keyboard": [
           [
-              InlineKeyboardButton(
-                  text="⬅️ Назад", callback_data=f"gar_prev_{index}"
-              ),
-              InlineKeyboardButton(
-                  text="➡️ Вперед", callback_data=f"gar_next_{index}"
-              ),
+              {"text": "⬅️ Назад", "callback_data": f"gar_prev_{index}"},
+              {"text": "➡️ Вперед", "callback_data": f"gar_next_{index}"},
           ],
           [
-              InlineKeyboardButton(
-                  text="💸 Продать за полцены",
-                  callback_data=f"gar_sell_{db_id}_{index}",
-              )
+              {
+                  "text": "💸 Продать за полцены",
+                  "callback_data": f"gar_sell_{db_id}_{index}",
+              }
           ],
           [
-              InlineKeyboardButton(
-                  text="🚗 В автосалон", callback_data="garage_to_shop"
-              ),
-              InlineKeyboardButton(
-                  text="❌ Выйти в меню", callback_data="gar_exit"
-              ),
+              {"text": "🚗 В автосалон", "callback_data": "garage_to_shop"},
+              {"text": "❌ Выйти в меню", "callback_data": "gar_exit"},
           ],
       ]
-  )
+  }
 
 
-def get_casino_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="🎲 Сыграть в кости"),
-              KeyboardButton(text="🃏 Сыграть в очко"),
-          ],
-          [KeyboardButton(text="⬅️ Назад")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_market_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [
-              KeyboardButton(text="👕 Шмотка VETEMENTS ($500)"),
-              KeyboardButton(text="🛡 Прокачать защиту ($300)"),
-          ],
-          [KeyboardButton(text="⬅️ Назад")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def get_admin_menu():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="💸 Выдать бабло"), KeyboardButton(text="🏢 Выдать бизнес")],
-          [KeyboardButton(text="⭐ Вывести звезды"), KeyboardButton(text="📢 Сделать рассылку")],
-          [KeyboardButton(text="🚪 Выйти из админки")],
-      ],
-      resize_keyboard=True,
-  )
-
-
-@dp.message(F.text == "/start")
-async def cmd_start(message: Message):
-  get_user(message.from_user.id, message.from_user.username)
-  user_name = message.from_user.first_name or "Бро"
-  text = (
-      f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
-      "Автосалон, бизнесы и казино ждут тебя!"
-  )
-  await message.answer(
-      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu()
-  )
-
-
-@dp.message(F.text == "⬅️ Назад")
-async def back_to_main(message: Message):
-  active_games.pop(message.from_user.id, None)
-  await message.answer("Главное меню, бро:", reply_markup=get_main_menu())
-
-
-@dp.message(F.text == "👤 Профиль")
-async def profile_handler(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  biz_count = len(user["businesses"])
-  car_count = len(user["cars"])
-  text = (
-      f"📊 **Твой профиль:**\n\n"
-      f"💰 Бахчи (бабосы): ${user['money']:,}\n"
-      f"🧢 Ранг: {user['rank']}\n"
-      f"🛡 Защита: {user['defense']}\n"
-      f"🏢 Бизнесов: {biz_count}\n"
-      f"🚗 Машин в гараже: {car_count}\n"
-      f"⚖️ Статус: На свободе"
-  )
-  await message.answer(
-      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu()
-  )
-
-
-@dp.message(F.text == "🏆 Топ бандюков")
-async def top_players_handler(message: Message):
-  try:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT username, money FROM users ORDER BY money DESC LIMIT 10"
-    )
-    top_rows = cursor.fetchall()
-    conn.close()
-    if not top_rows:
-      await message.answer(
-          "🏆 В базе данных пока нет ни одной записи игроков.",
-          reply_markup=get_main_menu(),
-      )
-      return
-    text = "🏆 Топ-10 авторитетов по бабосам:\n\n"
-    for i, (u_name, money) in enumerate(top_rows, 1):
-      medals = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-      name_display = f"@{u_name}" if u_name else "Бро"
-      safe_money = money if money is not None else 0
-      text += f"{medals} {name_display} — Баланс: ${safe_money:,}\n"
-    await message.answer(text, parse_mode=None, reply_markup=get_main_menu())
-  except Exception as e:
-    await message.answer(
-        f"⚠️ Ошибка в топе: {e}", parse_mode=None, reply_markup=get_main_menu()
-    )
-
-
-@dp.message(F.text.startswith("/admin"))
-async def admin_login_command(message: Message):
-  parts = message.text.split(maxsplit=1)
-  if len(parts) < 2:
-    await message.answer(
-        "Введи пароль вместе с командой, например: `/admin gver1212`",
-        parse_mode="Markdown",
-    )
-    return
-  password = parts[1]
-  if password == ADMIN_PASSWORD:
-    admin_session.add(message.from_user.id)
-    await message.answer(
-        "🔓 Админ-панель активна!", reply_markup=get_admin_menu()
-    )
-  else:
-    await message.answer("❌ Неверный пароль!")
-
-
-@dp.message(F.text == "🚪 Выйти из админки")
-async def admin_logout(message: Message):
-  admin_session.discard(message.from_user.id)
-  await message.answer("Админ-режим отключен.", reply_markup=get_main_menu())
-
-
-@dp.message(F.text == "💸 Выдать бабло")
-async def admin_prompt_money(message: Message):
-  if message.from_user.id not in admin_session:
-    return
-  active_games[message.from_user.id] = {"admin_action": "give_money"}
-  await message.answer(
-      "Введите данные в формате:\n`@username сумма` (или `ID сумма`)\nПример:"
-      " `@nikiteeess 500000`",
-      parse_mode="Markdown",
-  )
-
-
-@dp.message(F.text == "🏢 Выдать бизнес")
-async def admin_prompt_business(message: Message):
-  if message.from_user.id not in admin_session:
-    return
-  active_games[message.from_user.id] = {"admin_action": "give_biz"}
-  await message.answer(
-      "Введите данные в формате:\n`@username ключ_бизнеса`\n\nДоступные ключи"
-      " бизнесов:\n• `shaurma`\n• `carwash`\n• `club`\n• `casino_biz`\n•"
-      " `vip_cartel`\nПример: `@nikiteeess vip_cartel`",
-      parse_mode="Markdown",
-  )
-
-
-@dp.message(F.text == "⭐ Вывести звезды")
-async def admin_withdraw_stars(message: Message):
-  if message.from_user.id not in admin_session:
-    return
-  await message.answer(
-      "⭐ **Запрос на вывод звезд отправлен!**\n\nВсе донатные звезды (XTR),"
-      " поступившие на баланс бота через инвойсы, обрабатываются через"
-      " платежную систему Telegram / ShuzaGram.\nПроверьте @BotFather или"
-      " панель управления вашим ботом для вывода на кошелек.",
-      reply_markup=get_admin_menu(),
-  )
-
-
-@dp.message(F.text == "📢 Сделать рассылку")
-async def admin_prompt_broadcast(message: Message):
-  if message.from_user.id not in admin_session:
-    return
-  active_games[message.from_user.id] = {"admin_action": "broadcast"}
-  await message.answer(
-      "📢 Отправь текст (или сообщение с картинкой/форматированием), которое"
-      " нужно разослать **всем участникам** бота:",
-      reply_markup=ReplyKeyboardMarkup(
-          keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True
-      ),
-  )
-
-
-@dp.message(
-    lambda msg: msg.from_user.id in admin_session
-    and msg.from_user.id in active_games
-    and "admin_action" in active_games[msg.from_user.id]
-)
-async def admin_process_action(message: Message):
-  user_id = message.from_user.id
-  if message.text == "⬅️ Назад":
-    active_games.pop(user_id, None)
-    await message.answer("Рассылка отменена.", reply_markup=get_admin_menu())
-    return
-
-  action_data = active_games.pop(user_id)
-  action = action_data["admin_action"]
-
-  if action == "broadcast":
-    users = get_all_user_ids()
-    success_count = 0
-    fail_count = 0
-    status_msg = await message.answer(
-        f"⏳ Начинаю рассылку для {len(users)} участников..."
-    )
-    for uid in users:
-      try:
-        await message.send_copy(chat_id=uid)
-        success_count += 1
-        await asyncio.sleep(0.05)
-      except Exception:
-        fail_count += 1
-    await status_msg.edit_text(
-        f"📢 **Рассылка завершена!**\n\n✅ Успешно доставлено:"
-        f" {success_count}\n❌ Не удалось доставить: {fail_count}",
-        reply_markup=get_admin_menu(),
-    )
-    return
-
-  parts = message.text.strip().split()
-  if len(parts) < 2:
-    await message.answer(
-        "Ошибка формата! Попробуйте снова через кнопки админки."
-    )
-    return
-
-  target_raw = parts[0].lstrip("@").lower()
-  arg = parts[1]
-  t_id = get_user_by_username_or_id(target_raw)
-  if not t_id:
-    await message.answer(
-        f"❌ Пользователь `{target_raw}` не найден в базе данных (он должен"
-        " хотя бы раз нажать /start в боте).",
-        parse_mode="Markdown",
-    )
-    return
-
-  target_user = get_user(t_id)
-
-  if action == "give_money":
-    if not arg.isdigit():
-      await message.answer("❌ Сумма должна быть числом!")
-      return
-    amount = int(arg)
-    new_money = target_user["money"] + amount
-    update_user_money_and_stats(t_id, money=new_money)
-    await message.answer(
-        f"✅ Успешно! Игроку @{target_user['username']} выдано ${amount:,}."
-        f" Новый баланс: ${new_money:,}",
-        reply_markup=get_admin_menu(),
-    )
-  elif action == "give_biz":
-    if arg not in BUSINESSES:
-      await message.answer(
-          "❌ Неверный ключ бизнеса! Используйте: shaurma, carwash, club,"
-          " casino_biz, vip_cartel"
-      )
-      return
-    await add_user_business_and_backup(t_id, arg)
-    biz_name = BUSINESSES[arg]["name"]
-    await message.answer(
-        f"✅ Успешно! Игроку @{target_user['username']} выдан бизнес: {biz_name}.",
-        reply_markup=get_admin_menu(),
-    )
-
-
-async def show_car_page(message_or_callback, index=0, edit=True):
+def show_car_page(chat_id, message_id=None, index=0):
   global car_keys
   index = index % len(car_keys)
   key = car_keys[index]
   car = CARS[key]
-  price_str = (
-      f"⭐ **{car['cost_stars']} Звезд**"
-      if "cost_stars" in car
-      else f"**${car['cost']:,}**"
-  )
   text = (
       f"🚗 **Автосалон «У Палыча»**\n\n🚙 Модель: **{car['name']}**\n🏷 Редкость:"
       f" **{car['rarity']}**\n⚡️ Макс. скорость: `{car['speed']}`\n💰 Цена:"
-      f" {price_str}\n\n📄 Чёткая тачка, бери не пожалеешь!"
+      f" **${car['cost']:,}**\n\n📄 Чёткая тачка, бери не пожалеешь!"
   )
-  reply_markup = get_autosalon_inline(index)
-  if edit and hasattr(message_or_callback, "message"):
-    call = message_or_callback
-    try:
-      await call.message.edit_text(
-          text, parse_mode="Markdown", reply_markup=reply_markup
-      )
-    except Exception:
-      pass
-    await call.answer()
+  markup = get_autosalon_inline(index)
+  if message_id:
+    edit_message_text(chat_id, message_id, text, reply_markup=markup)
   else:
-    message = message_or_callback
-    await message.answer(
-        text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup
-    )
+    send_message(chat_id, text, reply_markup=markup)
 
 
-@dp.message(F.text == "🚗 Автосалон")
-async def autosalon_handler(message: Message):
-  await show_car_page(message, index=0, edit=False)
-
-
-async def show_garage_page(callback, index=0):
-  user_id = callback.from_user.id
+def show_garage_page(chat_id, message_id, user_id, index=0):
   cars_list = get_user_cars_detailed(user_id)
   if not cars_list:
-    await callback.answer(
-        "Твой гараж пуст! Сначала купи тачку в автосалоне.", show_alert=True
+    edit_message_text(
+        chat_id,
+        message_id,
+        "Твой гараж пуст! Сначала купи тачку в автосалоне.",
+        reply_markup={
+            "inline_keyboard": [[{"text": "🚗 В автосалон", "callback_data": "garage_to_shop"}]]
+        },
     )
     return
   index = index % len(cars_list)
@@ -737,551 +418,574 @@ async def show_garage_page(callback, index=0):
           "rarity": "🟢 Развалюха",
       },
   )
-  sell_price = int(car["cost"] / 2) if "cost" in car and car["cost"] > 0 else 0
-  slot_number = index + 1
-  total_slots = len(cars_list)
-  sell_str = (
-      f"**${sell_price:,}** (50% от гос. цены)"
-      if sell_price > 0
-      else "Бесценно (Донат)"
-  )
+  sell_price = int(car["cost"] / 2) if car["cost"] > 0 else 0
   text = (
-      f"🚙 **Твой гараж («У Палыча»)**\n\n🅿️ **Слот №{slot_number} из"
-      f" {total_slots}**\n🚗 Модель: **{car['name']}**\n🏷 Редкость:"
-      f" **{car['rarity']}**\n⚡️ Макс. скорость: `{car['speed']}`\n💵 Цена продажи"
-      f" этого слота: {sell_str}\n\n🔄 Листай слоты кнопками ниже:"
+      f"🚙 **Твой гараж («У Палыча»)**\n\n🅿️ **Слот №{index + 1} из"
+      f" {len(cars_list)}**\n🚗 Модель: **{car['name']}**\n🏷 Редкость:"
+      f" **{car['rarity']}**\n⚡️ Макс. скорость: `{car['speed']}`\n💵 Цена продажи:"
+      f" **${sell_price:,}**"
   )
-  reply_markup = get_garage_inline(index, db_id)
-  try:
-    await callback.message.edit_text(
-        text, parse_mode="Markdown", reply_markup=reply_markup
-    )
-  except Exception:
-    pass
-  await callback.answer()
+  markup = get_garage_inline(index, db_id)
+  edit_message_text(chat_id, message_id, text, reply_markup=markup)
 
 
-@dp.callback_query(F.data.startswith("car_") | F.data.startswith("garage_"))
-async def autosalon_callback_handler(callback):
-  data = callback.data
-  global car_keys
-  if data == "car_exit":
-    await callback.message.delete()
-    await callback.message.answer(
-        "Главное меню, бро:", reply_markup=get_main_menu()
-    )
-    await callback.answer()
-    return
-  if data == "garage_open":
-    await show_garage_page(callback, index=0)
-    return
-  if data == "garage_to_shop":
-    await show_car_page(callback, index=0, edit=True)
-    return
+def process_message(message):
+  chat_id = message["chat"]["id"]
+  user_id = message["from"]["id"]
+  username = message["from"].get("username", str(user_id))
+  text = message.get("text", "")
 
-  parts = data.split("_")
-  action = parts[1]
-  index = int(parts[2])
+  user = get_user(user_id, username)
 
-  if action == "prev":
-    await show_car_page(callback, index - 1, edit=True)
-  elif action == "next":
-    await show_car_page(callback, index + 1, edit=True)
-  elif action == "buy":
-    key = car_keys[index]
-    car = CARS[key]
-    user = get_user(callback.from_user.id, callback.from_user.username)
-    if "cost_stars" in car:
-      prices = [LabeledPrice(label=f"🏎 {car['name']}", amount=car["cost_stars"])]
-      await callback.message.answer_invoice(
-          title=f"Покупка {car['name']}",
-          description=(
-              f"Эксклюзивная донатная тачка! Макс. скорость: {car['speed']}."
-          ),
-          payload=f"buy_car_{key}",
-          currency="XTR",
-          prices=prices,
-      )
-      await callback.answer()
-      return
-    if user["money"] < car["cost"]:
-      await callback.answer(
-          f"Не хватает бабосов! Нужно ${car['cost']:,}, а у тебя"
-          f" ${user['money']:,}.",
-          show_alert=True,
+  # Проверка состояний (админка, казино, работа)
+  if user_id in active_games:
+    state = active_games[user_id]
+
+    if state.get("action") == "give_money":
+      active_games.pop(user_id, None)
+      if text == "⬅️ Назад":
+        send_message(chat_id, "Отменено.", reply_markup=get_admin_menu())
+        return
+      parts = text.split()
+      if len(parts) >= 2:
+        t_id = get_user_by_username_or_id(parts[0].lstrip("@"))
+        if t_id and parts[1].isdigit():
+          t_user = get_user(t_id)
+          new_m = t_user["money"] + int(parts[1])
+          update_user_money_and_stats(t_id, money=new_m)
+          send_message(
+              chat_id,
+              f"✅ Выдано ${int(parts[1]):,} игроку @{t_user['username']}!",
+              reply_markup=get_admin_menu(),
+          )
+          return
+      send_message(
+          chat_id, "❌ Неверный формат! Попробуй еще раз.", reply_markup=get_admin_menu()
       )
       return
-    new_money = user["money"] - car["cost"]
-    update_user_money_and_stats(user["user_id"], money=new_money)
-    await add_user_car_and_backup(user["user_id"], key)
-    await callback.answer(f"🎉 Успешно куплено: {car['name']}!", show_alert=True)
-    await show_car_page(callback, index, edit=True)
 
-
-@dp.message(F.successful_payment)
-async def successful_payment_handler(message: Message):
-  user_id = message.from_user.id
-  get_user(user_id, message.from_user.username)
-  payload = message.successful_payment.invoice_payload
-  if payload == "buy_vip_cartel":
-    await add_user_business_and_backup(user_id, "vip_cartel")
-    item_name = "Картель"
-  elif payload.startswith("buy_car_"):
-    car_key = payload.replace("buy_car_", "")
-    await add_user_car_and_backup(user_id, car_key)
-    item_name = CARS.get(car_key, {"name": "Тачка"})["name"]
-  await message.answer(
-      f"👑 Оплата прошла успешно! **{item_name}** добавлена в твою"
-      " коллекцию! 🔥",
-      reply_markup=get_main_menu(),
-  )
-
-
-@dp.callback_query(F.data.startswith("gar_"))
-async def garage_callback_handler(callback):
-  data = callback.data
-  user_id = callback.from_user.id
-  parts = data.split("_")
-  action = parts[1]
-  if action == "exit":
-    await callback.message.delete()
-    await callback.message.answer(
-        "Главное меню, бро:", reply_markup=get_main_menu()
-    )
-    await callback.answer()
-    return
-  if action == "to":
-    await show_car_page(callback, index=0, edit=True)
-    return
-  if action in ["prev", "next"]:
-    index = int(parts[2])
-    if action == "prev":
-      await show_garage_page(callback, index - 1)
-    elif action == "next":
-      await show_garage_page(callback, index + 1)
-  elif action == "sell":
-    db_id = int(parts[2])
-    index = int(parts[3])
-    cars_list = get_user_cars_detailed(user_id)
-    target_car = next((item for item in cars_list if item[0] == db_id), None)
-    if not target_car:
-      await callback.answer("Этот слот уже пуст!", show_alert=True)
-      await show_garage_page(callback, index=0)
-      return
-    _, key = target_car
-    car = CARS[key]
-    if "cost_stars" in car:
-      await callback.answer(
-          "Донатные тачки нельзя продать за баксы!", show_alert=True
+    elif state.get("action") == "give_biz":
+      active_games.pop(user_id, None)
+      if text == "⬅️ Назад":
+        send_message(chat_id, "Отменено.", reply_markup=get_admin_menu())
+        return
+      parts = text.split()
+      if len(parts) >= 2:
+        t_id = get_user_by_username_or_id(parts[0].lstrip("@"))
+        biz_k = parts[1]
+        if t_id and biz_k in BUSINESSES:
+          t_user = get_user(t_id)
+          add_user_business(t_id, biz_k)
+          send_message(
+              chat_id,
+              f"✅ Выдан бизнес {BUSINESSES[biz_k]['name']} игроку"
+              f" @{t_user['username']}!",
+              reply_markup=get_admin_menu(),
+          )
+          return
+      send_message(
+          chat_id, "❌ Ошибка формата или ключа бизнеса!", reply_markup=get_admin_menu()
       )
       return
-    sell_price = int(car["cost"] / 2)
-    remove_car_by_db_id(db_id)
-    user = get_user(user_id)
-    new_money = user["money"] + sell_price
-    update_user_money_and_stats(user_id, money=new_money)
-    await callback.answer(
-        f"💰 Слот продан! Выручено: ${sell_price:,}!", show_alert=True
-    )
-    updated_list = get_user_cars_detailed(user_id)
-    if not updated_list:
-      await callback.message.edit_text(
-          "🚙 **Твой гараж пуст!** Все машины проданы.",
-          reply_markup=InlineKeyboardMarkup(
-              inline_keyboard=[
-                  [
-                      InlineKeyboardButton(
-                          text="🚗 В автосалон", callback_data="garage_to_shop"
-                      )
-                  ],
-                  [
-                      InlineKeyboardButton(
-                          text="❌ Выйти в меню", callback_data="gar_exit"
-                      )
-                  ],
-              ]
-          ),
+
+    elif state.get("action") == "broadcast":
+      active_games.pop(user_id, None)
+      if text == "⬅️ Назад":
+        send_message(chat_id, "Рассылка отменена.", reply_markup=get_admin_menu())
+        return
+      all_u = get_all_user_ids()
+      count = 0
+      for uid in all_u:
+        send_message(uid, f"📢 **Рассылка от администрации:**\n\n{text}")
+        count += 1
+      send_message(
+          chat_id,
+          f"📢 Рассылка завершена! Получателей: {count}",
+          reply_markup=get_admin_menu(),
       )
+      return
+
+    elif state.get("casino"):
+      if text == "⬅️ Назад":
+        active_games.pop(user_id, None)
+        send_message(chat_id, "Вышел из казино.", reply_markup=get_casino_menu())
+        return
+      if not text.isdigit():
+        send_message(chat_id, "⚠️ Ставка должна быть числом!")
+        return
+      bet = int(text)
+      active_games.pop(user_id, None)
+      if bet <= 0 or user["money"] < bet:
+        send_message(
+            chat_id,
+            "❌ Недостаточно бабла или неверная ставка!",
+            reply_markup=get_casino_menu(),
+        )
+        return
+      win = random.choice([True, False])
+      if win:
+        new_m = user["money"] + bet
+        update_user_money_and_stats(user_id, money=new_m)
+        send_message(
+            chat_id,
+            f"🎲 Победа! Выиграл **+${bet:,}**! 💰\nБаланс: ${new_m:,}",
+            reply_markup=get_casino_menu(),
+        )
+      else:
+        new_m = user["money"] - bet
+        update_user_money_and_stats(user_id, money=new_m)
+        send_message(
+            chat_id,
+            f"🎲 Проиграл. Ставка ${bet:,} сгорела...\nБаланс: ${new_m:,}",
+            reply_markup=get_casino_menu(),
+        )
+      return
+
+    elif "job" in state:
+      job_data = active_games.pop(user_id)
+      correct = job_data["correct"]
+      prizes = {"ref": 250, "car": 600, "block": 1000, "fed": 1800}
+      prize = prizes.get(job_data["job"], 300)
+
+      if text == correct:
+        new_m = user["money"] + prize
+        update_user_money_and_stats(user_id, money=new_m)
+        send_message(
+            chat_id,
+            f"🎯 Успех! Выбор ({text}) верный.\nПолучено: **+${prize:,}**! 💸",
+            reply_markup=get_work_menu(),
+        )
+      else:
+        send_message(
+            chat_id,
+            f"💥 Мимо! Правильным ответом был `{correct}`. Менты приняли тебя.",
+            reply_markup=get_work_menu(),
+        )
+      return
+
+  # Основные команды
+  if text == "/start":
+    send_message(
+        chat_id,
+        f"Здорово, {message['from'].get('first_name', 'Бро')}! 🤙 Добро"
+        " пожаловать в **бот бандит**.\n\nАвтосалон, бизнесы и казино ждут тебя!",
+        reply_markup=get_main_menu(),
+    )
+
+  elif text == "⬅️ Назад":
+    active_games.pop(user_id, None)
+    send_message(chat_id, "Главное меню, бро:", reply_markup=get_main_menu())
+
+  elif text == "👤 Профиль":
+    user = get_user(user_id, username)
+    send_message(
+        chat_id,
+        f"📊 **Твой профиль:**\n\n💰 Бахчи: ${user['money']:,}\n🧢 Ранг:"
+        f" {user['rank']}\n🛡 Защита: {user['defense']}\n🏢 Бизнесов:"
+        f" {len(user['businesses'])}\n🚗 Машин в гараже: {len(user['cars'])}",
+        reply_markup=get_main_menu(),
+    )
+
+  elif text == "🏆 Топ бандюков":
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT username, money FROM users ORDER BY money DESC LIMIT 10"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    msg = "🏆 **Топ-10 авторитетов:**\n\n"
+    for i, (u_n, mon) in enumerate(rows, 1):
+      msg += f"{i}. @{u_n} — ${mon:,}\n"
+    send_message(chat_id, msg, reply_markup=get_main_menu())
+
+  elif text.startswith("/admin"):
+    parts = text.split()
+    if len(parts) > 1 and parts[1] == ADMIN_PASSWORD:
+      admin_session.add(user_id)
+      send_message(chat_id, "🔓 Админ-панель активна!", reply_markup=get_admin_menu())
     else:
-      await show_garage_page(callback, index - 1)
+      send_message(chat_id, "❌ Неверный пароль!")
 
+  elif text == "🚪 Выйти из админки":
+    admin_session.discard(user_id)
+    send_message(chat_id, "Админ-режим отключен.", reply_markup=get_main_menu())
 
-@dp.message(F.text == "💼 Работа")
-async def work_handler(message: Message):
-  await message.answer(
-      "мяумс, выбери тему. В каждой работе правильный выбор генерируется"
-      " случайно каждый раз!",
-      reply_markup=get_work_menu(),
-  )
+  elif text == "💸 Выдать бабло" and user_id in admin_session:
+    active_games[user_id] = {"action": "give_money"}
+    send_message(
+        chat_id,
+        "Введите: `@username сумма`",
+        reply_markup={
+            "keyboard": [[{"text": "⬅️ Назад"}]],
+            "resize_keyboard": True,
+        },
+    )
 
+  elif text == "🏢 Выдать бизнес" and user_id in admin_session:
+    active_games[user_id] = {"action": "give_biz"}
+    send_message(
+        chat_id,
+        "Введите: `@username ключ`\nКлючи: shaurma, carwash, club, casino_biz,"
+        " vip_cartel",
+        reply_markup={
+            "keyboard": [[{"text": "⬅️ Назад"}]],
+            "resize_keyboard": True,
+        },
+    )
 
-@dp.message(F.text == "🤝 Раскидать рефки")
-async def work_ref_start(message: Message):
-  variants = ["💬 Спам в ЛС", "📢 Пост в чате", "🚪 Зайти в комменты"]
-  correct_variant = random.choice(variants)
-  active_games[message.from_user.id] = {"job": "ref", "correct": correct_variant}
-  await message.answer(
-      "📱 Ты засел за спам. Куда закинешь пацанам ссылку?",
-      reply_markup=get_ref_keyboard(),
-  )
+  elif text == "📢 Сделать рассылку" and user_id in admin_session:
+    active_games[user_id] = {"action": "broadcast"}
+    send_message(
+        chat_id,
+        "Отправьте текст для рассылки всем пользователям:",
+        reply_markup={
+            "keyboard": [[{"text": "⬅️ Назад"}]],
+            "resize_keyboard": True,
+        },
+    )
 
+  elif text == "🚗 Автосалон":
+    show_car_page(chat_id, index=0)
 
-@dp.message(F.text == "🚕 Угон тачки")
-async def work_car_start(message: Message):
-  variants = ["🔴 Красный провод", "🔵 Синий провод", "🟢 Зеленый провод"]
-  correct_variant = random.choice(variants)
-  active_games[message.from_user.id] = {"job": "car", "correct": correct_variant}
-  await message.answer(
-      "🚗 Взломал тачку под окнами. Какой провод дергать?",
-      reply_markup=get_car_keyboard(),
-  )
+  elif text == "💼 Работа":
+    send_message(chat_id, "Выбери тему работы:", reply_markup=get_work_menu())
 
+  elif text == "🤝 Раскидать рефки":
+    variants = ["💬 Спам в ЛС", "📢 Пост в чате", "🚪 Зайти в комменты"]
+    active_games[user_id] = {"job": "ref", "correct": random.choice(variants)}
+    send_message(
+        chat_id,
+        "📱 Куда закинешь ссылку?",
+        reply_markup={
+            "keyboard": [
+                [
+                    {"text": "💬 Спам в ЛС"},
+                    {"text": "📢 Пост в чате"},
+                    {"text": "🚪 Зайти в комменты"},
+                ],
+                [{"text": "⬅️ Назад"}],
+            ],
+            "resize_keyboard": True,
+        },
+    )
 
-@dp.message(F.text == "🧱 Стрелка за блок")
-async def work_block_start(message: Message):
-  variants = [
-      "🛡 Сесть за укрытие",
-      "💥 Идти в лобовую",
-      "🏃 Обойти с фланга",
-  ]
-  correct_variant = random.choice(variants)
-  active_games[message.from_user.id] = {
-      "job": "block",
-      "correct": correct_variant,
-  }
-  await message.answer(
-      "🧱 На районе замес. Какую тактику выберешь?",
-      reply_markup=get_block_keyboard(),
-  )
+  elif text == "🚕 Угон тачки":
+    variants = ["🔴 Красный провод", "🔵 Синий провод", "🟢 Зеленый провод"]
+    active_games[user_id] = {"job": "car", "correct": random.choice(variants)}
+    send_message(
+        chat_id,
+        "🚗 Какой провод дергать?",
+        reply_markup={
+            "keyboard": [
+                [
+                    {"text": "🔴 Красный провод"},
+                    {"text": "🔵 Синий провод"},
+                    {"text": "🟢 Зеленый провод"},
+                ],
+                [{"text": "⬅️ Назад"}],
+            ],
+            "resize_keyboard": True,
+        },
+    )
 
-
-@dp.message(F.text == "👮 Сходняк")
-async def work_fed_start(message: Message):
-  variants = [
-      "💼 Дать на лапу",
-      "🗣 Качать права",
-      "🤝 Порешать по понятиям",
-  ]
-  correct_variant = random.choice(variants)
-  active_games[message.from_user.id] = {"job": "fed", "correct": correct_variant}
-  await message.answer(
-      "👮 Серьезный базар с авторитетами. Как поведешь себя?",
-      reply_markup=get_fed_keyboard(),
-  )
-
-
-@dp.message(F.text == "❌ Слинять")
-async def cancel_job(message: Message):
-  active_games.pop(message.from_user.id, None)
-  await message.answer("Соскочил с темы.", reply_markup=get_work_menu())
-
-
-@dp.message(
-    F.text.in_([
-        "💬 Спам в ЛС",
-        "📢 Пост в чате",
-        "🚪 Зайти в комменты",
-        "🔴 Красный провод",
-        "🔵 Синий провод",
-        "🟢 Зеленый провод",
+  elif text == "🧱 Стрелка за блок":
+    variants = [
         "🛡 Сесть за укрытие",
         "💥 Идти в лобовую",
         "🏃 Обойти с фланга",
+    ]
+    active_games[user_id] = {"job": "block", "correct": random.choice(variants)}
+    send_message(
+        chat_id,
+        "🧱 Какую тактику выберешь?",
+        reply_markup={
+            "keyboard": [
+                [
+                    {"text": "🛡 Сесть за укрытие"},
+                    {"text": "💥 Идти в лобовую"},
+                    {"text": "🏃 Обойти с фланга"},
+                ],
+                [{"text": "⬅️ Назад"}],
+            ],
+            "resize_keyboard": True,
+        },
+    )
+
+  elif text == "👮 Сходняк":
+    variants = [
         "💼 Дать на лапу",
         "🗣 Качать права",
         "🤝 Порешать по понятиям",
-    ])
-)
-async def process_job_choice(message: Message):
-  user_id = message.from_user.id
-  if user_id not in active_games or "job" not in active_games[user_id]:
-    await message.answer(
-        "Сначала выбери работу в меню!", reply_markup=get_work_menu()
+    ]
+    active_games[user_id] = {"job": "fed", "correct": random.choice(variants)}
+    send_message(
+        chat_id,
+        "👮 Как поведешь себя с авторитетами?",
+        reply_markup={
+            "keyboard": [
+                [
+                    {"text": "💼 Дать на лапу"},
+                    {"text": "🗣 Качать права"},
+                    {"text": "🤝 Порешать по понятиям"},
+                ],
+                [{"text": "⬅️ Назад"}],
+            ],
+            "resize_keyboard": True,
+        },
     )
-    return
-  game_data = active_games.pop(user_id)
-  job_type = game_data["job"]
-  correct_variant = game_data["correct"]
-  user = get_user(user_id, message.from_user.username)
-  choice = message.text
-  prizes = {"ref": 250, "car": 600, "block": 1000, "fed": 1800}
-  prize = prizes.get(job_type, 300)
 
-  if choice == correct_variant:
-    new_money = user["money"] + prize
-    update_user_money_and_stats(user_id, money=new_money)
-    await message.answer(
-        f"🎯 Четкий расчет! Выбор ({choice}) оказался верным.\nУспех! Получено:"
-        f" **+${prize:,}**! 💸\nБаланс: ${new_money:,}",
-        reply_markup=get_work_menu(),
+  elif text == "🎰 Казино":
+    send_message(chat_id, "🎲 Выбирай игру:", reply_markup=get_casino_menu())
+
+  elif text in ["🎲 Сыграть в кости", "🃏 Сыграть в очко"]:
+    active_games[user_id] = {"casino": True}
+    send_message(
+        chat_id,
+        "💰 Напиши сумму ставки числом:",
+        reply_markup={
+            "keyboard": [[{"text": "⬅️ Назад"}]],
+            "resize_keyboard": True,
+        },
     )
+
+  elif text == "🏢 Бизнесы":
+    send_message(
+        chat_id, "🏢 **Биржа бизнесов:**", reply_markup=get_business_menu()
+    )
+
+  elif text in [
+      "🌭 Шаурма ($5k)",
+      "🚗 Автомойка ($25k)",
+      "💎 Клуб ($100k)",
+      "🎰 Казино ($500k)",
+  ]:
+    mapping = {
+        "🌭 Шаурма ($5k)": "shaurma",
+        "🚗 Автомойка ($25k)": "carwash",
+        "💎 Клуб ($100k)": "club",
+        "🎰 Казино ($500k)": "casino_biz",
+    }
+    b_key = mapping[text]
+    cost = BUSINESSES[b_key]["cost"]
+    if user["money"] < cost:
+      send_message(chat_id, f"❌ Не хватает бабосов! Нужно ${cost:,}.")
+    else:
+      new_m = user["money"] - cost
+      update_user_money_and_stats(user_id, money=new_m)
+      add_user_business(user_id, b_key)
+      send_message(
+          chat_id,
+          f"🎉 Куплен бизнес **{BUSINESSES[b_key]['name']}**!\nБалансы:"
+          f" ${new_m:,}",
+          reply_markup=get_business_menu(),
+      )
+
+  elif text == "💼 Мои бизнесы":
+    bizs = user["businesses"]
+    if not bizs:
+      send_message(chat_id, "У тебя пока нет бизнесов.")
+    else:
+      from collections import Counter
+
+      counts = Counter(bizs)
+      msg = "🏢 **Твои бизнесы:**\n\n"
+      total_inc = 0
+      for k, cnt in counts.items():
+        inc = BUSINESSES[k]["income"] * cnt
+        total_inc += inc
+        msg += f"• {BUSINESSES[k]['name']} (x{cnt}) — ${inc:,}/час\n"
+      msg += f"\n💵 Доход в час: ${total_inc:,}"
+      send_message(chat_id, msg)
+
+  elif text == "🛒 Шмотки":
+    send_message(chat_id, "🛍 **BB MARKET:**", reply_markup=get_market_menu())
+
+  elif text in ["👕 Шмотка VETEMENTS ($500)", "🛡 Прокачать защиту ($300)"]:
+    is_vet = "VETEMENTS" in text
+    cost = 500 if is_vet else 300
+    if user["money"] < cost:
+      send_message(chat_id, f"❌ Не хватает бабосов! Нужно ${cost:,}.")
+    else:
+      new_m = user["money"] - cost
+      if is_vet:
+        update_user_money_and_stats(
+            user_id, money=new_m, rank="Авторитет в VETEMENTS 🧥"
+        )
+        send_message(
+            chat_id, f"🔥 Куплен VETEMENTS! Баланс: ${new_m:,}", reply_markup=get_market_menu()
+        )
+      else:
+        new_def = user["defense"] + 15
+        update_user_money_and_stats(user_id, money=new_m, defense=new_def)
+        send_message(
+            chat_id,
+            f"🛡 Защита прокачана до {new_def}! Баланс: ${new_m:,}",
+            reply_markup=get_market_menu(),
+        )
   else:
-    await message.answer(
-        f"💥 Мимо! Ты выбрал `{choice}`, но правильным ответом в этот раз был"
-        f" другой вариант. Менты / конкуренты тебя приняли, ушел ни с чем.",
-        parse_mode="Markdown",
-        reply_markup=get_work_menu(),
+    send_message(
+        chat_id,
+        "Чет непонятная малява. Пользуйся меню или пиши /start, бро.",
+        reply_markup=get_main_menu(),
     )
 
 
-@dp.message(F.text == "🎰 Казино")
-async def casino_handler(message: Message):
-  await message.answer(
-      "🎲 Добро пожаловать в казино! Выбирай игру:",
-      reply_markup=get_casino_menu(),
-  )
+def process_callback(callback):
+  query_id = callback["id"]
+  data = callback["data"]
+  chat_id = callback["message"]["chat"]["id"]
+  message_id = callback["message"]["message_id"]
+  user_id = callback["from"]["id"]
 
-
-@dp.message(F.text.in_(["🎲 Сыграть в кости", "🃏 Сыграть в очко"]))
-async def casino_select_game(message: Message):
-  g_type = "dice" if "кости" in message.text else "cards"
-  active_games[message.from_user.id] = {"casino": g_type}
-  await message.answer(
-      "💰 Напиши сумму ставки числом (например: `500`):",
-      parse_mode="Markdown",
-      reply_markup=ReplyKeyboardMarkup(
-          keyboard=[[KeyboardButton(text="⬅️ Назад")]], resize_keyboard=True
-      ),
-  )
-
-
-@dp.message(
-    lambda msg: msg.from_user.id in active_games
-    and "casino" in active_games[msg.from_user.id]
-)
-async def casino_process_bet(message: Message):
-  user_id = message.from_user.id
-  if message.text == "⬅️ Назад":
-    active_games.pop(user_id, None)
-    await message.answer("Вышел из казино.", reply_markup=get_casino_menu())
+  if data == "car_exit":
+    answer_callback_query(query_id)
+    requests.post(
+        URL + "deleteMessage", json={"chat_id": chat_id, "message_id": message_id}
+    )
+    send_message(chat_id, "Главное меню, бро:", reply_markup=get_main_menu())
     return
-  if not message.text.isdigit():
-    await message.answer(
-        "⚠️ Эу, бро! Ставка должна быть обычной цифрой (например: `500`)."
-        " Попробуй еще раз или нажми «⬅️ Назад»:",
-        parse_mode="Markdown",
-    )
+
+  if data == "garage_open":
+    answer_callback_query(query_id)
+    show_garage_page(chat_id, message_id, user_id, index=0)
     return
-  bet_amount = int(message.text)
-  user = get_user(user_id, message.from_user.username)
-  if bet_amount <= 0:
-    await message.answer("Ставка должна быть больше нуля, бро.")
+
+  if data == "garage_to_shop":
+    answer_callback_query(query_id)
+    show_car_page(chat_id, message_id, index=0)
     return
-  if user["money"] < bet_amount:
-    await message.answer(
-        f"Эу! У тебя нет столько бабла. Твой баланс: ${user['money']:,}",
-        reply_markup=get_casino_menu(),
-    )
-    active_games.pop(user_id, None)
+
+  if data.startswith("car_"):
+    parts = data.split("_")
+    action = parts[1]
+    index = int(parts[2])
+    if action == "prev":
+      show_car_page(chat_id, message_id, index - 1)
+    elif action == "next":
+      show_car_page(chat_id, message_id, index + 1)
+    elif action == "buy":
+      key = car_keys[index]
+      car = CARS[key]
+      user = get_user(user_id)
+      if user["money"] < car["cost"]:
+        answer_callback_query(
+            query_id,
+            f"Не хватает бабосов! Нужно ${car['cost']:,}",
+            show_alert=True,
+        )
+        return
+      new_m = user["money"] - car["cost"]
+      update_user_money_and_stats(user_id, money=new_m)
+      add_user_car(user_id, key)
+      answer_callback_query(
+          query_id, f"🎉 Успешно куплено: {car['name']}!", show_alert=True
+      )
+      show_car_page(chat_id, message_id, index)
     return
-  active_games.pop(user_id, None)
-  win = random.choices([True, False], weights=[30, 70], k=1)[0]
-  if win:
-    payout = bet_amount
-    new_money = user["money"] + payout
-    update_user_money_and_stats(user_id, money=new_money)
-    await message.answer(
-        f"🎲 Удача на твоей стороне! Выиграл **+${payout:,}**! 💰\nБаланс:"
-        f" ${new_money:,}",
-        reply_markup=get_casino_menu(),
-    )
-  else:
-    new_money = user["money"] - bet_amount
-    update_user_money_and_stats(user_id, money=new_money)
-    await message.answer(
-        f"🎲 Не фартануло. Ставка ${bet_amount:,} сгорела...\nБаланс:"
-        f" ${new_money:,}",
-        reply_markup=get_casino_menu(),
-    )
 
-
-@dp.message(F.text == "🏢 Бизнесы")
-async def business_menu_handler(message: Message):
-  await message.answer(
-      "🏢 **Биржа бизнесов:**\nТы можешь покупать **несколько одинаковых"
-      " бизнесов**! Каждый новый приносит пассивный доход.",
-      reply_markup=get_business_menu(),
-  )
-
-
-@dp.message(
-    F.text.in_([
-        "🌭 Шаурма ($5k)",
-        "🚗 Автомойка ($25k)",
-        "💎 Клуб ($100k)",
-        "🎰 Казино ($500k)",
-    ])
-)
-async def buy_business_in_cash(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  mapping = {
-      "🌭 Шаурма ($5k)": "shaurma",
-      "🚗 Автомойка ($25k)": "carwash",
-      "💎 Клуб ($100k)": "club",
-      "🎰 Казино ($500k)": "casino_biz",
-  }
-  key = mapping.get(message.text)
-  biz_info = BUSINESSES[key]
-  if user["money"] < biz_info["cost"]:
-    await message.answer(
-        f"Не хватает бабосов! Нужно ${biz_info['cost']:,}, а у тебя"
-        f" ${user['money']:,}.",
-        reply_markup=get_business_menu(),
-    )
+  if data.startswith("gar_"):
+    parts = data.split("_")
+    action = parts[1]
+    if action == "exit":
+      answer_callback_query(query_id)
+      requests.post(
+          URL + "deleteMessage", json={"chat_id": chat_id, "message_id": message_id}
+      )
+      send_message(chat_id, "Главное меню, бро:", reply_markup=get_main_menu())
+      return
+    if action in ["prev", "next"]:
+      answer_callback_query(query_id)
+      show_garage_page(chat_id, message_id, user_id, int(parts[2]))
+    elif action == "sell":
+      db_id = int(parts[2])
+      index = int(parts[3])
+      cars_list = get_user_cars_detailed(user_id)
+      target = next((c for c in cars_list if c[0] == db_id), None)
+      if not target:
+        answer_callback_query(query_id, "Слот уже пуст!", show_alert=True)
+        return
+      _, key = target
+      sell_price = int(CARS[key]["cost"] / 2)
+      remove_car_by_db_id(db_id)
+      user = get_user(user_id)
+      new_m = user["money"] + sell_price
+      update_user_money_and_stats(user_id, money=new_m)
+      answer_callback_query(
+          query_id, f"💰 Выручено: ${sell_price:,}!", show_alert=True
+      )
+      show_garage_page(chat_id, message_id, user_id, index - 1)
     return
-  new_money = user["money"] - biz_info["cost"]
-  update_user_money_and_stats(user.get("user_id"), money=new_money)
-  await add_user_business_and_backup(user.get("user_id"), key)
-  await message.answer(
-      f"🎉 Ты успешно докупил **{biz_info['name']}**!\nПрибыль:"
-      f" ${biz_info['income']:,}/час.\nБаланс: ${new_money:,}",
-      reply_markup=get_business_menu(),
-  )
 
 
-@dp.message(F.text == "👑 Картель (250 ⭐)")
-async def buy_cartel_stars(message: Message):
-  prices = [LabeledPrice(label="👑 Картель (500k/час)", amount=250)]
-  await message.answer_invoice(
-      title="Покупка Картеля",
-      description="Элитный бизнес за звезды! Приносит 500,000 в час.",
-      payload="buy_vip_cartel",
-      currency="XTR",
-      prices=prices,
-  )
-
-
-@dp.pre_checkout_query()
-async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
-  await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-
-@dp.message(F.text == "💼 Мои бизнесы")
-async def show_my_businesses(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  if not user["businesses"]:
-    await message.answer(
-        "У тебя пока пусто. Пора замутить бизнес!",
-        reply_markup=get_business_menu(),
-    )
-    return
-  from collections import Counter
-
-  counts = Counter(user["businesses"])
-  total_income = 0
-  text = "🏢 **Твои владения:**\n\n"
-  for key, count in counts.items():
-    b = BUSINESSES[key]
-    inc = b["income"] * count
-    total_income += inc
-    text += f"• {b['name']} (x{count}) — 💵 **${inc:,}/час**\n"
-  text += f"\n📊 **Общий пассивный доход в час:** ${total_income:,}"
-  await message.answer(
-      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_business_menu()
-  )
-
-
-@dp.message(F.text == "🛒 Шмотки")
-async def market_handler(message: Message):
-  await message.answer(
-      "🛍 **BB MARKET:**\nТут можно прикупить шмотки для авторитета.",
-      reply_markup=get_market_menu(),
-  )
-
-
-@dp.message(F.text.in_(["👕 Шмотка VETEMENTS ($500)", "🛡 Прокачать защиту ($300)"]))
-async def market_buy_handler(message: Message):
-  user = get_user(message.from_user.id, message.from_user.username)
-  is_vetements = "VETEMENTS" in message.text
-  cost = 500 if is_vetements else 300
-  if user["money"] < cost:
-    await message.answer(
-        f"Не хватает бабосов! У тебя ${user['money']:,}.",
-        reply_markup=get_market_menu(),
-    )
-    return
-  new_money = user["money"] - cost
-  if is_vetements:
-    new_rank = "Авторитет в VETEMENTS 🧥"
-    update_user_money_and_stats(user["user_id"], money=new_money, rank=new_rank)
-    await message.answer(
-        f"Куплен **VETEMENTS**! Ранг: **{new_rank}** 🔥\nБаланс:"
-        f" ${new_money:,}",
-        reply_markup=get_market_menu(),
-    )
-  else:
-    new_def = user["defense"] + 15
-    update_user_money_and_stats(
-        user["user_id"], money=new_money, defense=new_def
-    )
-    await message.answer(
-        f"Защита прокачана! Теперь защита: **{new_def}** 🛡\nБаланс:"
-        f" ${new_money:,}",
-        reply_markup=get_market_menu(),
-    )
-
-
-@dp.message()
-async def echo_handler(message: Message):
-  await message.answer(
-      "Чет непонятная малява. Пользуйся меню или пиши /start, бро.",
-      reply_markup=get_main_menu(),
-  )
-
-
-async def hourly_business_income():
+def hourly_income_loop():
   while True:
-    await asyncio.sleep(3600)
+    time.sleep(3600)
     try:
       conn = sqlite3.connect(DB_FILE)
       cursor = conn.cursor()
       cursor.execute("SELECT DISTINCT user_id FROM businesses")
-      users_with_biz = cursor.fetchall()
-      for (u_id,) in users_with_biz:
+      users = cursor.fetchall()
+      for (u_id,) in users:
         cursor.execute(
             "SELECT biz_key FROM businesses WHERE user_id = ?", (u_id,)
         )
         b_keys = [b[0] for b in cursor.fetchall()]
-        if not b_keys:
-          continue
         from collections import Counter
 
         counts = Counter(b_keys)
-        total_income = 0
-        for b_key, count in counts.items():
-          if b_key in BUSINESSES:
-            total_income += BUSINESSES[b_key]["income"] * count
-        if total_income > 0:
+        total = sum(
+            BUSINESSES[k]["income"] * cnt
+            for k, cnt in counts.items()
+            if k in BUSINESSES
+        )
+        if total > 0:
           cursor.execute(
               "UPDATE users SET money = money + ? WHERE user_id = ?",
-              (total_income, u_id),
+              (total, u_id),
           )
           conn.commit()
-          try:
-            await bot.send_message(
-                u_id,
-                f"💵 **Пассивный доход!**\nТвои бизнесы принесли тебе"
-                f" **+${total_income:,}** за прошедший час.",
-                parse_mode="Markdown",
-            )
-          except Exception:
-            pass
+          send_message(
+              u_id,
+              f"💵 **Пассивный доход!**\nТвои бизнесы принесли **+${total:,}**"
+              " за час.",
+          )
       conn.close()
     except Exception as e:
-      print(f"[ERROR] {e}")
+      print(f"[INCOME ERROR] {e}")
 
 
-async def main():
-  logging.basicConfig(level=logging.INFO)
-  print("Запуск бота в режиме Long Polling...")
+def main():
   init_db()
-  asyncio.create_task(hourly_business_income())
+  print("Запуск бота на чистом requests...")
+  threading.Thread(target=hourly_income_loop, daemon=True).start()
 
+  # Сброс вебхука, чтобы работал Long Polling через getUpdates
   try:
-    await dp.start_polling(bot, handle_signals=False)
-  finally:
-    await bot.session.close()
+    requests.get(URL + "deleteWebhook", params={"drop_pending_updates": True})
+  except Exception:
+    pass
+
+  offset = 0
+  while True:
+    try:
+      response = requests.get(
+          URL + "getUpdates",
+          params={"offset": offset, "timeout": 30},
+          timeout=35,
+      )
+      data = response.json()
+      if data.get("ok"):
+        for update in data.get("result", []):
+          offset = update["update_id"] + 1
+          if "message" in update:
+            process_message(update["message"])
+          elif "callback_query" in update:
+            process_callback(update["callback_query"])
+    except Exception as e:
+      print(f"[POLLING ERROR] {e}")
+      time.sleep(3)
 
 
 if __name__ == "__main__":
-  asyncio.run(main())
+  main()
