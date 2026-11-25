@@ -21,8 +21,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Токен для ШузаГрам
-TOKEN = "1780243414:1GSEOqcNmxiSHWOyR_P0e68PEzz6N7_OYkt"
+# Новый токен для ШузаГрам
+TOKEN = "1780243414:LOf-u_T8aBdyjBTAnE4cG1a_sr58EVA4bKa"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
