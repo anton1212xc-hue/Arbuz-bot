@@ -5,7 +5,6 @@ import random
 import sqlite3
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
@@ -26,15 +25,11 @@ TOKEN = "1780243414:LOf-u_T8aBdyjBTAnE4cG1a_sr58EVA4bKa"
 OWNER_ID = 1780243411  # Твой правильный Telegram ID
 ADMIN_PASSWORD = "gver1212"  # Пароль для админ-панели
 
-# Настройка кастомного сервера для ShuzaGram с учетом префикса /bot в aiogram 3.x
+# Стабильная настройка кастомного сервера для ShuzaGram
 custom_server = TelegramAPIServer.from_base("https://api.shuzagram.com/bot")
 session = AiohttpSession(api=custom_server)
 
-bot = Bot(
-    token=TOKEN,
-    session=session,
-    default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
-)
+bot = Bot(token=TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
 
 DB_FILE = "database.db"
@@ -515,7 +510,9 @@ async def cmd_start(message: Message):
       f"Здорово, {user_name}! 🤙 Добро пожаловать в **бот бандит**.\n\n"
       "Автосалон, бизнесы и казино ждут тебя!"
   )
-  await message.answer(text, reply_markup=get_main_menu())
+  await message.answer(
+      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu()
+  )
 
 
 @dp.message(F.text == "⬅️ Назад")
@@ -538,7 +535,9 @@ async def profile_handler(message: Message):
       f"🚗 Машин в гараже: {car_count}\n"
       f"⚖️ Статус: На свободе"
   )
-  await message.answer(text, reply_markup=get_main_menu())
+  await message.answer(
+      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu()
+  )
 
 
 @dp.message(F.text == "🏆 Топ бандюков")
@@ -791,7 +790,9 @@ async def show_car_page(message_or_callback, index=0, edit=True):
     await call.answer()
   else:
     message = message_or_callback
-    await message.answer(text, parse_mode="Markdown", reply_markup=reply_markup)
+    await message.answer(
+        text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup
+    )
 
 
 @dp.message(F.text == "🚗 Автосалон")
@@ -1328,7 +1329,9 @@ async def show_my_businesses(message: Message):
     text += f"• {b['name']} (x{count}) — 💵 **${inc:,}/час**\n"
 
   text += f"\n📊 **Общий пассивный доход в час:** ${total_income:,}"
-  await message.answer(text, reply_markup=get_business_menu())
+  await message.answer(
+      text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_business_menu()
+  )
 
 
 # --- МАГАЗИН ШМОТОК ---
