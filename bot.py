@@ -1488,8 +1488,8 @@ async def main():
   await site.start()
   print(f"Веб-сервер запущен на порту {port}")
 
-  # Запускаем поллинг (или держим поток активным для приема апдейтов)
-  await dp.start_polling(bot)
+  # Бесконечно держим приложение запущенным для вебхуков
+  await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
