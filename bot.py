@@ -1,9 +1,7 @@
 import asyncio
 import logging
-import os
 import random
 import sqlite3
-from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
@@ -17,7 +15,6 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
     ReplyKeyboardMarkup,
-    Update,
 )
 
 # Твой рабочий токен ШузаГрам
@@ -1274,58 +1271,23 @@ async def hourly_business_income():
       print(f"[ERROR] {e}")
 
 
-WEBHOOK_PATH = f"/bot/{TOKEN}"
-
-
-async def handle_webhook(request):
-  try:
-    data = await request.json()
-    print(f"[DEBUG] Получен апдейт от сервера: {data}")
-    telegram_update = Update(**data)
-    await dp.feed_update(bot=bot, update=telegram_update)
-    return web.Response(text="OK")
-  except Exception as e:
-    print(f"[ERROR] Ошибка вебхука: {e}")
-    return web.Response(text="Error", status=500)
-
-
-async def handle_index(request):
-  return web.Response(text="Бот Бандит активен!")
-
-
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Запуск сервера...")
+  print("Запуск бота в режиме Long Polling...")
   init_db()
   asyncio.create_task(hourly_business_income())
 
-  app = web.Application()
-  app.router.add_get("/", handle_index)
-  app.router.add_post(WEBHOOK_PATH, handle_webhook)
-
-  # Жестко прописываем URL для установки вебхука
-  render_url = "https://arbuz-bot-2kbp.onrender.com"
-  webhook_url = f"{render_url}{WEBHOOK_PATH}"
-  print(f"Пытаюсь установить вебхук на: {webhook_url}")
-
+  # Очищаем вебхук перед запуском поллинга, чтобы ШузаГрам перестал ждать сервер
   try:
-    await bot.set_webhook(webhook_url)
-    print("✅ Вебхук успешно установлен через API!")
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("🧹 Старый вебхук успешно сброшен.")
   except Exception as e:
-    print(f"❌ Ошибка установки вебхука: {e}")
-
-  runner = web.AppRunner(app)
-  await runner.setup()
-  port = int(os.environ.get("PORT", 10000))
-  site = web.TCPSite(runner, "0.0.0.0", port)
-  await site.start()
-  print(f"Сервер слушает порт {port}")
+    print(f"⚠️ Не удалось сбросить вебхук: {e}")
 
   try:
-    await asyncio.Event().wait()
+    await dp.start_polling(bot)
   finally:
     await bot.session.close()
-    await runner.cleanup()
 
 
 if __name__ == "__main__":
